@@ -14,12 +14,12 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "CodeVault AI - Your Code Knowledge Base & AI Agent",
-  description: "AI-powered code knowledge base that holds all your company's project data and code. Chat with AI to generate, update, and debug code with complete, copy-paste ready results.",
-  keywords: ["CodeVault", "AI Agent", "Code Assistant", "Knowledge Base", "Code Generation", "Next.js"],
-  authors: [{ name: "CodeVault AI" }],
+  title: "Trishul AI Helper - Your Code Knowledge Base & AI Agent",
+  description: "Trishul AI Helper — your AI-powered code knowledge base that holds all your company's project data and code. Chat with AI to generate, update, and debug code with complete, copy-paste ready results.",
+  keywords: ["Trishul AI Helper", "Trishulhub", "AI Agent", "Code Assistant", "Knowledge Base", "Code Generation", "Next.js"],
+  authors: [{ name: "Trishul AI Helper" }],
   icons: {
-    icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
+    icon: "/trishul-logo.png",
   },
 };
 

@@ -25,11 +25,9 @@ import {
   Pencil,
   FolderPlus,
   FilePlus,
-  Code2,
-  Sparkles,
+
   Loader2,
   FileText,
-  Hash,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -257,8 +255,8 @@ function ChatMessage({
   return (
     <div className={`flex gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}>
       {!isUser && (
-        <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-lg">
-          <Bot className="h-4 w-4 text-white" />
+        <div className="flex-shrink-0 w-8 h-8 rounded-lg overflow-hidden flex items-center justify-center shadow-lg bg-card">
+          <img src="/trishul-logo.png" alt="AI" className="h-full w-full object-contain p-0.5" />
         </div>
       )}
       <div className={`max-w-[85%] ${isUser ? 'order-first' : ''}`}>
@@ -678,12 +676,14 @@ export default function Home() {
         >
           {/* Sidebar Header */}
           <div className="p-4 border-b">
-            <div className="flex items-center gap-2 mb-3">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center">
-                <Code2 className="h-4 w-4 text-white" />
-              </div>
+            <div className="flex items-center gap-2.5 mb-3">
+              <img
+                src="/trishul-logo.png"
+                alt="Trishul AI Helper"
+                className="h-8 w-auto object-contain"
+              />
               <div>
-                <h1 className="text-sm font-bold">CodeVault AI</h1>
+                <h1 className="text-sm font-bold">Trishul AI Helper</h1>
                 <p className="text-[10px] text-muted-foreground">Your Code Knowledge Base</p>
               </div>
             </div>
@@ -955,7 +955,7 @@ export default function Home() {
           {/* Sidebar Footer */}
           <div className="p-3 border-t">
             <div className="text-[10px] text-muted-foreground text-center">
-              CodeVault AI • Powered by Z.ai
+              Trishul AI Helper • by Trishulhub
             </div>
           </div>
         </div>
@@ -972,6 +972,11 @@ export default function Home() {
             >
               {sidebarOpen ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
             </Button>
+            <img
+              src="/trishul-banner.png"
+              alt="Trishulhub"
+              className="h-7 w-auto object-contain hidden sm:block"
+            />
             <div className="flex items-center gap-2 flex-1 min-w-0">
               {currentProject ? (
                 <>
@@ -1012,10 +1017,12 @@ export default function Home() {
                 /* Welcome Screen */
                 <div className="flex-1 flex items-center justify-center p-8">
                   <div className="text-center max-w-md">
-                    <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center mx-auto mb-6 shadow-xl">
-                      <Sparkles className="h-10 w-10 text-white" />
-                    </div>
-                    <h2 className="text-2xl font-bold mb-2">Welcome to CodeVault AI</h2>
+                    <img
+                      src="/trishul-logo.png"
+                      alt="Trishul AI Helper"
+                      className="h-16 w-auto object-contain mx-auto mb-6"
+                    />
+                    <h2 className="text-2xl font-bold mb-2">Welcome to Trishul AI Helper</h2>
                     <p className="text-muted-foreground mb-6">
                       Your AI-powered code knowledge base. Store your company&apos;s projects and code,
                       then chat with AI to generate updates, fix bugs, and build new features.
@@ -1046,7 +1053,11 @@ export default function Home() {
                     <div className="max-w-4xl mx-auto space-y-4">
                       {messages.length === 0 && (
                         <div className="text-center py-12">
-                          <Bot className="h-12 w-12 text-emerald-500 mx-auto mb-4 opacity-50" />
+                    <img
+                      src="/trishul-logo.png"
+                      alt="Trishul AI Helper"
+                      className="h-12 w-auto object-contain mx-auto mb-4 opacity-80"
+                    />
                           <h3 className="text-lg font-semibold mb-1">Ready to Code</h3>
                           <p className="text-sm text-muted-foreground mb-6">
                             I have full knowledge of your project. Ask me to update code, add features, fix bugs, or explain anything.
@@ -1084,8 +1095,8 @@ export default function Home() {
 
                       {isLoading && (
                         <div className="flex gap-3">
-                          <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center">
-                            <Bot className="h-4 w-4 text-white" />
+                          <div className="flex-shrink-0 w-8 h-8 rounded-lg overflow-hidden flex items-center justify-center bg-card">
+                            <img src="/trishul-logo.png" alt="AI" className="h-full w-full object-contain p-0.5" />
                           </div>
                           <div className="bg-muted rounded-2xl rounded-bl-md px-4 py-3">
                             <div className="flex items-center gap-2 text-sm text-muted-foreground">
