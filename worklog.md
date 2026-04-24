@@ -1,28 +1,31 @@
 ---
-Task ID: 1
+Task ID: 2
 Agent: Main
-Task: Complete rebuild of Trishul AI Helper with mobile responsive design and direct chat feature
+Task: Fix starting page, auto-scroll, and add Code Panel for side-by-side code viewing
 
 Work Log:
-- Updated Prisma schema to make `projectId` optional in Conversation model, added `mode` field ("direct" or "project")
-- Pushed schema changes to database with `bun run db:push`
-- Created `/api/direct-chats` route to list direct chat conversations
-- Updated `/api/chat/route.ts` to support direct chat (no projectId required)
-- Updated `/lib/llm.ts` with `buildDirectChatPrompt()` for AI chat without project context
-- Updated Zustand store to include `selectedDirectChatId` state
-- Completely rebuilt `page.tsx` with:
-  - Mobile responsive design using `useIsMobile` hook
-  - Sheet (drawer) sidebar on mobile instead of fixed sidebar
-  - Direct AI Chat feature - employees can chat without creating a project
-  - Mobile-friendly file viewer (dialog modal on mobile, side panel on desktop)
-  - Responsive spacing, font sizes, and touch targets
-  - Welcome screen with Direct Chat and Create Project cards
-  - Quick suggestion buttons for common tasks
-- Build passes successfully with `npx next build`
+- Fixed starting page rendering - welcome screen now shows properly with input field and action cards
+- Fixed auto-scroll issue - implemented smart scroll detection:
+  - Tracks if user manually scrolls up (150px from bottom threshold)
+  - Stops auto-scrolling when user scrolls up
+  - Shows "Scroll to bottom" floating button when user is scrolled up
+  - Resets scroll state on new conversation
+- Added side-by-side Code Panel feature:
+  - Desktop: opens as a right-side panel (45% width) with tabs
+  - Mobile: opens as a bottom sheet (85vh height)
+  - "Current" tab: shows the code block user clicked "View" on
+  - "All Code" tab: shows all extracted code blocks from the conversation
+  - Each code block has "View" and "Copy" buttons
+  - Toggle button in top bar shows code block count
+- Added "View" button on every code block in chat messages
+- Added max-height (400px) with scroll on inline code blocks to prevent auto-scroll issues
+- Welcome screen now has a quick-start input field at the bottom
+- All code viewers use Dialog modals instead of inline panels for better mobile experience
+- Build and lint pass successfully
 
 Stage Summary:
-- All backend APIs working: projects CRUD, files CRUD, chat, direct-chats listing, conversations
-- Frontend completely rebuilt with mobile-first responsive design
-- Direct chat feature allows employees to chat with AI (GLM models) without needing a project
-- Project-based chat still available with full codebase context
-- App compiles and builds successfully
+- Starting page now renders correctly with welcome screen and input
+- Auto-scroll no longer traps users at the bottom - they can scroll up freely
+- Code Panel allows side-by-side code viewing with copy functionality
+- All features are mobile responsive (Sheet for mobile, Panel for desktop)
+- Floating "Scroll to bottom" button when user scrolls away from latest messages
