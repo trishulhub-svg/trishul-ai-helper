@@ -25,7 +25,6 @@ import {
   Pencil,
   FolderPlus,
   FilePlus,
-
   Loader2,
   FileText,
 } from 'lucide-react';
@@ -40,6 +39,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DialogDescription,
 } from '@/components/ui/dialog';
 import {
   AlertDialog,
@@ -136,20 +136,34 @@ function getLanguage(lang: string): string {
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
 
-  const handleCopy = async () => {
-    await navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const handleCopy = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Fallback for older browsers
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
   };
 
   return (
     <Button
       variant="ghost"
-      size="icon"
-      className="h-7 w-7 text-zinc-400 hover:text-white hover:bg-zinc-700"
+      size="sm"
+      className="h-6 px-2 text-[10px] text-zinc-400 hover:text-white hover:bg-zinc-700 gap-1"
       onClick={handleCopy}
     >
-      {copied ? <Check className="h-3.5 w-3.5 text-green-400" /> : <Copy className="h-3.5 w-3.5" />}
+      {copied ? <Check className="h-3 w-3 text-green-400" /> : <Copy className="h-3 w-3" />}
+      {copied ? 'Copied!' : 'Copy'}
     </Button>
   );
 }
@@ -167,6 +181,20 @@ function SaveToProjectButton({ code, language, projectId, onSaved }: {
   const [filePath, setFilePath] = useState('');
   const { toast } = useToast();
 
+  // Auto-detect file path from code comment
+  useEffect(() => {
+    if (showDialog && projectId) {
+      const filePathMatch = code.match(/\/\/\s*filepath:\s*(.+)/i) ||
+                            code.match(/<!--\s*filepath:\s*(.+)\s*-->/i) ||
+                            code.match(/#\s*filepath:\s*(.+)/i);
+      if (filePathMatch) {
+        const detected = filePathMatch[1].trim();
+        setFilePath(detected);
+        setFileName(detected.split('/').pop() || detected);
+      }
+    }
+  }, [showDialog, code, projectId]);
+
   if (!projectId) return null;
 
   const handleSave = async () => {
@@ -183,14 +211,17 @@ function SaveToProjectButton({ code, language, projectId, onSaved }: {
           content: code,
         }),
       });
-      if (!res.ok) throw new Error('Failed to save');
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to save');
+      }
       toast({ title: 'File saved!', description: `${fileName} saved to project` });
       setShowDialog(false);
       setFileName('');
       setFilePath('');
       onSaved();
-    } catch {
-      toast({ title: 'Error', description: 'Failed to save file', variant: 'destructive' });
+    } catch (err) {
+      toast({ title: 'Error', description: err instanceof Error ? err.message : 'Failed to save file', variant: 'destructive' });
     } finally {
       setSaving(false);
     }
@@ -200,17 +231,21 @@ function SaveToProjectButton({ code, language, projectId, onSaved }: {
     <>
       <Button
         variant="ghost"
-        size="icon"
-        className="h-7 w-7 text-zinc-400 hover:text-emerald-400 hover:bg-zinc-700"
-        onClick={() => setShowDialog(true)}
-        title="Save to project"
+        size="sm"
+        className="h-6 px-2 text-[10px] text-zinc-400 hover:text-emerald-400 hover:bg-zinc-700 gap-1"
+        onClick={(e) => {
+          e.stopPropagation();
+          setShowDialog(true);
+        }}
       >
-        <Save className="h-3.5 w-3.5" />
+        <Save className="h-3 w-3" />
+        Save
       </Button>
       <Dialog open={showDialog} onOpenChange={setShowDialog}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Save Code to Project</DialogTitle>
+            <DialogDescription>Save this code block as a file in your project</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div>
@@ -259,7 +294,7 @@ function ChatMessage({
           <img src="/trishul-logo.png" alt="AI" className="h-full w-full object-contain p-0.5" />
         </div>
       )}
-      <div className={`max-w-[85%] ${isUser ? 'order-first' : ''}`}>
+      <div className={`max-w-[85%] min-w-0`}>
         <div
           className={`rounded-2xl px-4 py-3 text-sm leading-relaxed ${
             isUser
@@ -282,7 +317,7 @@ function ChatMessage({
                         <div className="relative group my-3 rounded-lg overflow-hidden border border-border">
                           <div className="flex items-center justify-between bg-zinc-800 dark:bg-zinc-900 px-3 py-1.5 text-xs text-zinc-400">
                             <span className="font-mono">{match[1]}</span>
-                            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <div className="flex gap-1">
                               <SaveToProjectButton
                                 code={codeString}
                                 language={match[1]}
@@ -392,7 +427,11 @@ export default function Home() {
 
   // Fetch current project details
   const fetchProjectDetails = useCallback(async () => {
-    if (!selectedProjectId) return;
+    if (!selectedProjectId) {
+      setCurrentProject(null);
+      setProjectFiles([]);
+      return;
+    }
     try {
       const res = await fetch(`/api/projects/${selectedProjectId}`);
       if (res.ok) {
@@ -405,14 +444,15 @@ export default function Home() {
     }
   }, [selectedProjectId]);
 
-  // Fetch conversation messages
-  const fetchMessages = useCallback(async () => {
-    if (!selectedConversationId) {
+  // Fetch conversation messages — use direct ID parameter to avoid stale closures
+  const fetchMessages = useCallback(async (convId?: string) => {
+    const id = convId || selectedConversationId;
+    if (!id) {
       setMessages([]);
       return;
     }
     try {
-      const res = await fetch(`/api/conversations/${selectedConversationId}`);
+      const res = await fetch(`/api/conversations/${id}`);
       if (res.ok) {
         const data = await res.json();
         setCurrentConversation(data);
@@ -456,18 +496,22 @@ export default function Home() {
           techStack: newProjectTech.trim(),
         }),
       });
-      if (res.ok) {
-        const project = await res.json();
-        toast({ title: 'Project created!', description: newProjectName });
-        setShowNewProject(false);
-        setNewProjectName('');
-        setNewProjectDesc('');
-        setNewProjectTech('');
-        setSelectedProjectId(project.id);
-        fetchProjects();
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to create project');
       }
-    } catch {
-      toast({ title: 'Error', description: 'Failed to create project', variant: 'destructive' });
+      const project = await res.json();
+      toast({ title: 'Project created!', description: newProjectName });
+      setShowNewProject(false);
+      setNewProjectName('');
+      setNewProjectDesc('');
+      setNewProjectTech('');
+      setSelectedProjectId(project.id);
+      // Auto-expand the new project
+      setExpandedProjects(prev => new Set(prev).add(project.id));
+      fetchProjects();
+    } catch (err) {
+      toast({ title: 'Error', description: err instanceof Error ? err.message : 'Failed to create project', variant: 'destructive' });
     }
   };
 
@@ -475,13 +519,12 @@ export default function Home() {
   const handleDeleteProject = async (id: string) => {
     try {
       const res = await fetch(`/api/projects/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        if (selectedProjectId === id) {
-          setSelectedProjectId(null);
-        }
-        fetchProjects();
-        toast({ title: 'Project deleted' });
+      if (!res.ok) throw new Error('Failed to delete');
+      if (selectedProjectId === id) {
+        setSelectedProjectId(null);
       }
+      fetchProjects();
+      toast({ title: 'Project deleted' });
     } catch {
       toast({ title: 'Error', description: 'Failed to delete project', variant: 'destructive' });
     }
@@ -501,17 +544,19 @@ export default function Home() {
           content: newFileContent,
         }),
       });
-      if (res.ok) {
-        toast({ title: 'File added!', description: newFileName });
-        setShowNewFile(false);
-        setNewFileName('');
-        setNewFilePath('');
-        setNewFileLanguage('typescript');
-        setNewFileContent('');
-        fetchProjectDetails();
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to add file');
       }
-    } catch {
-      toast({ title: 'Error', description: 'Failed to add file', variant: 'destructive' });
+      toast({ title: 'File added!', description: newFileName });
+      setShowNewFile(false);
+      setNewFileName('');
+      setNewFilePath('');
+      setNewFileLanguage('typescript');
+      setNewFileContent('');
+      fetchProjectDetails();
+    } catch (err) {
+      toast({ title: 'Error', description: err instanceof Error ? err.message : 'Failed to add file', variant: 'destructive' });
     }
   };
 
@@ -520,11 +565,13 @@ export default function Home() {
     if (!selectedProjectId) return;
     try {
       const res = await fetch(`/api/projects/${selectedProjectId}/files/${fileId}`, { method: 'DELETE' });
-      if (res.ok) {
-        if (viewingFile?.id === fileId) setViewingFile(null);
-        fetchProjectDetails();
-        toast({ title: 'File deleted' });
+      if (!res.ok) throw new Error('Failed to delete');
+      if (viewingFile?.id === fileId) {
+        setViewingFile(null);
+        setFileViewerOpen(false);
       }
+      fetchProjectDetails();
+      toast({ title: 'File deleted' });
     } catch {
       toast({ title: 'Error', description: 'Failed to delete file', variant: 'destructive' });
     }
@@ -533,7 +580,6 @@ export default function Home() {
   // Add code via paste
   const handleAddCode = async () => {
     if (!selectedProjectId || !addCodeContent.trim()) return;
-    // Try to parse file path from the code content
     const filePathMatch = addCodeContent.match(/\/\/\s*filepath:\s*(.+)/i) ||
                           addCodeContent.match(/<!--\s*filepath:\s*(.+)\s*-->/i);
     
@@ -552,14 +598,16 @@ export default function Home() {
           content: addCodeContent,
         }),
       });
-      if (res.ok) {
-        toast({ title: 'Code added!', description: `Saved as ${filePath}` });
-        setShowAddCode(false);
-        setAddCodeContent('');
-        fetchProjectDetails();
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to add code');
       }
-    } catch {
-      toast({ title: 'Error', description: 'Failed to add code', variant: 'destructive' });
+      toast({ title: 'Code added!', description: `Saved as ${filePath}` });
+      setShowAddCode(false);
+      setAddCodeContent('');
+      fetchProjectDetails();
+    } catch (err) {
+      toast({ title: 'Error', description: err instanceof Error ? err.message : 'Failed to add code', variant: 'destructive' });
     }
   };
 
@@ -567,20 +615,19 @@ export default function Home() {
   const handleDeleteConversation = async (id: string) => {
     try {
       const res = await fetch(`/api/conversations/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        if (selectedConversationId === id) {
-          setSelectedConversationId(null);
-          setMessages([]);
-        }
-        fetchProjectDetails();
-        toast({ title: 'Chat deleted' });
+      if (!res.ok) throw new Error('Failed to delete');
+      if (selectedConversationId === id) {
+        setSelectedConversationId(null);
+        setMessages([]);
       }
+      fetchProjectDetails();
+      toast({ title: 'Chat deleted' });
     } catch {
       toast({ title: 'Error', description: 'Failed to delete chat', variant: 'destructive' });
     }
   };
 
-  // Send message
+  // Send message — FIX: pass conversation ID directly to avoid stale closure
   const handleSendMessage = async () => {
     if (!inputMessage.trim() || isLoading) return;
 
@@ -611,23 +658,37 @@ export default function Home() {
 
       if (res.ok) {
         const data = await res.json();
+        const newConvId = data.conversationId;
 
         // Update conversation ID if new
-        if (data.conversationId && !selectedConversationId) {
-          setSelectedConversationId(data.conversationId);
+        if (newConvId && !selectedConversationId) {
+          setSelectedConversationId(newConvId);
         }
 
-        // Replace temp messages with real ones
-        await fetchMessages();
+        // FIX: Fetch messages directly with the conversation ID to avoid stale closure
+        if (newConvId) {
+          try {
+            const msgRes = await fetch(`/api/conversations/${newConvId}`);
+            if (msgRes.ok) {
+              const msgData = await msgRes.json();
+              setCurrentConversation(msgData);
+              setMessages(msgData.messages || []);
+            }
+          } catch (e) {
+            console.error('Failed to fetch messages after send:', e);
+          }
+        }
 
-        // Refresh project details (file count may have changed)
+        // Refresh project details (conversations list, file count)
         fetchProjectDetails();
+        fetchProjects();
       } else {
-        toast({ title: 'Error', description: 'Failed to get response', variant: 'destructive' });
+        const errData = await res.json().catch(() => ({}));
+        toast({ title: 'Error', description: errData.error || 'Failed to get response', variant: 'destructive' });
         setMessages(prev => prev.filter(m => m.id !== tempUserMsg.id));
       }
-    } catch {
-      toast({ title: 'Error', description: 'Network error', variant: 'destructive' });
+    } catch (err) {
+      toast({ title: 'Network Error', description: 'Could not connect to the server', variant: 'destructive' });
       setMessages(prev => prev.filter(m => m.id !== tempUserMsg.id));
     } finally {
       setIsLoading(false);
@@ -639,6 +700,7 @@ export default function Home() {
     setSelectedConversationId(null);
     setMessages([]);
     setCurrentConversation(null);
+    inputRef.current?.focus();
   };
 
   // Toggle project expand
@@ -652,7 +714,7 @@ export default function Home() {
   };
 
   // View file
-  const handleViewFile = async (file: CodeFile) => {
+  const handleViewFile = (file: CodeFile) => {
     setViewingFile(file);
     setFileViewerOpen(true);
   };
@@ -687,51 +749,51 @@ export default function Home() {
                 <p className="text-[10px] text-muted-foreground">Your Code Knowledge Base</p>
               </div>
             </div>
-            <div className="flex gap-2">
-              <Dialog open={showNewProject} onOpenChange={setShowNewProject}>
-                <DialogTrigger asChild>
-                  <Button size="sm" className="flex-1 h-8 text-xs gap-1.5">
-                    <FolderPlus className="h-3.5 w-3.5" /> New Project
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="sm:max-w-md">
-                  <DialogHeader>
-                    <DialogTitle>Create New Project</DialogTitle>
-                  </DialogHeader>
-                  <div className="space-y-3">
-                    <div>
-                      <label className="text-sm font-medium mb-1.5 block">Project Name *</label>
-                      <Input
-                        value={newProjectName}
-                        onChange={(e) => setNewProjectName(e.target.value)}
-                        placeholder="e.g., My Web App"
-                        onKeyDown={(e) => e.key === 'Enter' && handleCreateProject()}
-                      />
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium mb-1.5 block">Description</label>
-                      <Textarea
-                        value={newProjectDesc}
-                        onChange={(e) => setNewProjectDesc(e.target.value)}
-                        placeholder="What is this project about?"
-                        rows={2}
-                      />
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium mb-1.5 block">Tech Stack</label>
-                      <Input
-                        value={newProjectTech}
-                        onChange={(e) => setNewProjectTech(e.target.value)}
-                        placeholder="e.g., Next.js, TypeScript, Prisma"
-                      />
-                    </div>
-                    <Button onClick={handleCreateProject} disabled={!newProjectName.trim()} className="w-full">
-                      <FolderPlus className="h-4 w-4 mr-2" /> Create Project
-                    </Button>
+            <Dialog open={showNewProject} onOpenChange={setShowNewProject}>
+              <DialogTrigger asChild>
+                <Button size="sm" className="flex-1 h-8 text-xs gap-1.5 w-full">
+                  <FolderPlus className="h-3.5 w-3.5" /> New Project
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                  <DialogTitle>Create New Project</DialogTitle>
+                  <DialogDescription>Add your project to store code and chat with AI</DialogDescription>
+                </DialogHeader>
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-sm font-medium mb-1.5 block">Project Name *</label>
+                    <Input
+                      value={newProjectName}
+                      onChange={(e) => setNewProjectName(e.target.value)}
+                      placeholder="e.g., My Web App"
+                      onKeyDown={(e) => e.key === 'Enter' && handleCreateProject()}
+                      autoFocus
+                    />
                   </div>
-                </DialogContent>
-              </Dialog>
-            </div>
+                  <div>
+                    <label className="text-sm font-medium mb-1.5 block">Description</label>
+                    <Textarea
+                      value={newProjectDesc}
+                      onChange={(e) => setNewProjectDesc(e.target.value)}
+                      placeholder="What is this project about?"
+                      rows={2}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium mb-1.5 block">Tech Stack</label>
+                    <Input
+                      value={newProjectTech}
+                      onChange={(e) => setNewProjectTech(e.target.value)}
+                      placeholder="e.g., Next.js, TypeScript, Prisma"
+                    />
+                  </div>
+                  <Button onClick={handleCreateProject} disabled={!newProjectName.trim()} className="w-full">
+                    <FolderPlus className="h-4 w-4 mr-2" /> Create Project
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
           </div>
 
           {/* Project List */}
@@ -757,7 +819,7 @@ export default function Home() {
                         toggleProjectExpand(project.id);
                       }}
                     >
-                      {expandedProjects.has(project.id) ? (
+                      {expandedProjects.has(project.id) && selectedProjectId === project.id ? (
                         <ChevronDown className="h-3.5 w-3.5 flex-shrink-0" />
                       ) : (
                         <ChevronRight className="h-3.5 w-3.5 flex-shrink-0" />
@@ -861,16 +923,25 @@ export default function Home() {
                         ))}
 
                         {/* Add File / Add Code Buttons */}
-                        <div className="flex gap-1">
-                          <Dialog open={showNewFile} onOpenChange={setShowNewFile}>
+                        <div className="flex gap-1 pt-1">
+                          <Dialog open={showNewFile} onOpenChange={(open) => {
+                            setShowNewFile(open);
+                            if (!open) {
+                              setNewFileName('');
+                              setNewFilePath('');
+                              setNewFileLanguage('typescript');
+                              setNewFileContent('');
+                            }
+                          }}>
                             <DialogTrigger asChild>
-                              <button className="flex items-center gap-1 px-2 py-1.5 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted flex-1 transition-colors">
+                              <button className="flex items-center gap-1 px-2 py-1.5 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted flex-1 transition-colors border border-dashed border-border">
                                 <FilePlus className="h-3 w-3" /> Add File
                               </button>
                             </DialogTrigger>
                             <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
                               <DialogHeader>
                                 <DialogTitle>Add Code File</DialogTitle>
+                                <DialogDescription>Add a new code file to your project</DialogDescription>
                               </DialogHeader>
                               <div className="space-y-3">
                                 <div className="grid grid-cols-2 gap-3">
@@ -880,6 +951,7 @@ export default function Home() {
                                       value={newFileName}
                                       onChange={(e) => setNewFileName(e.target.value)}
                                       placeholder="e.g., page.tsx"
+                                      autoFocus
                                     />
                                   </div>
                                   <div>
@@ -916,15 +988,19 @@ export default function Home() {
                             </DialogContent>
                           </Dialog>
 
-                          <Dialog open={showAddCode} onOpenChange={setShowAddCode}>
+                          <Dialog open={showAddCode} onOpenChange={(open) => {
+                            setShowAddCode(open);
+                            if (!open) setAddCodeContent('');
+                          }}>
                             <DialogTrigger asChild>
-                              <button className="flex items-center gap-1 px-2 py-1.5 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted flex-1 transition-colors">
+                              <button className="flex items-center gap-1 px-2 py-1.5 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted flex-1 transition-colors border border-dashed border-border">
                                 <Pencil className="h-3 w-3" /> Paste Code
                               </button>
                             </DialogTrigger>
                             <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
                               <DialogHeader>
                                 <DialogTitle>Paste Code</DialogTitle>
+                                <DialogDescription>Paste your code and it will be saved as a file</DialogDescription>
                               </DialogHeader>
                               <div className="space-y-3">
                                 <p className="text-xs text-muted-foreground">
@@ -936,6 +1012,7 @@ export default function Home() {
                                   placeholder={`// filepath: src/app/page.tsx\n\nexport default function Page() {\n  return <div>Hello World</div>;\n}`}
                                   rows={16}
                                   className="font-mono text-xs"
+                                  autoFocus
                                 />
                                 <Button onClick={handleAddCode} disabled={!addCodeContent.trim()} className="w-full">
                                   <Save className="h-4 w-4 mr-2" /> Save Code
@@ -996,16 +1073,9 @@ export default function Home() {
               )}
             </div>
             {selectedProjectId && (
-              <div className="flex gap-2">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5" onClick={handleNewChat}>
-                      <Plus className="h-3 w-3" /> New Chat
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Start a new conversation</TooltipContent>
-                </Tooltip>
-              </div>
+              <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5" onClick={handleNewChat}>
+                <Plus className="h-3 w-3" /> New Chat
+              </Button>
             )}
           </div>
 
@@ -1028,7 +1098,7 @@ export default function Home() {
                       then chat with AI to generate updates, fix bugs, and build new features.
                     </p>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-left">
-                      <div className="rounded-xl border p-4 hover:border-emerald-500/50 transition-colors">
+                      <div className="rounded-xl border p-4 hover:border-emerald-500/50 transition-colors cursor-pointer" onClick={() => setShowNewProject(true)}>
                         <FolderPlus className="h-5 w-5 text-emerald-500 mb-2" />
                         <h3 className="text-sm font-semibold mb-1">Create Project</h3>
                         <p className="text-xs text-muted-foreground">Add your project with its tech stack details</p>
@@ -1053,14 +1123,14 @@ export default function Home() {
                     <div className="max-w-4xl mx-auto space-y-4">
                       {messages.length === 0 && (
                         <div className="text-center py-12">
-                    <img
-                      src="/trishul-logo.png"
-                      alt="Trishul AI Helper"
-                      className="h-12 w-auto object-contain mx-auto mb-4 opacity-80"
-                    />
+                          <img
+                            src="/trishul-logo.png"
+                            alt="Trishul AI Helper"
+                            className="h-12 w-auto object-contain mx-auto mb-4 opacity-80"
+                          />
                           <h3 className="text-lg font-semibold mb-1">Ready to Code</h3>
                           <p className="text-sm text-muted-foreground mb-6">
-                            I have full knowledge of your project. Ask me to update code, add features, fix bugs, or explain anything.
+                            I have full knowledge of your project{projectFiles.length > 0 ? ` (${projectFiles.length} files loaded)` : ''}. Ask me to update code, add features, fix bugs, or explain anything.
                           </p>
                           <div className="flex flex-wrap justify-center gap-2">
                             {[
@@ -1123,7 +1193,7 @@ export default function Home() {
                             onKeyDown={handleKeyDown}
                             placeholder={
                               selectedProjectId
-                                ? 'Ask AI to generate, update, or fix your code...'
+                                ? 'Ask AI to generate, update, or fix your code... (Press Enter to send)'
                                 : 'Select a project first...'
                             }
                             disabled={!selectedProjectId || isLoading}
@@ -1136,11 +1206,6 @@ export default function Home() {
                               target.style.height = Math.min(target.scrollHeight, 200) + 'px';
                             }}
                           />
-                          <div className="absolute right-2 bottom-1.5 flex items-center gap-1">
-                            <span className="text-[10px] text-muted-foreground hidden sm:block">
-                              {projectFiles.length} files loaded
-                            </span>
-                          </div>
                         </div>
                         <Button
                           size="icon"
@@ -1156,7 +1221,9 @@ export default function Home() {
                         </Button>
                       </div>
                       <p className="text-[10px] text-muted-foreground mt-1.5 text-center">
-                        AI has full knowledge of all your project files. Ask for complete, copy-paste ready code.
+                        {projectFiles.length > 0
+                          ? `AI has full knowledge of your ${projectFiles.length} project files. Ask for complete, copy-paste ready code.`
+                          : 'Upload code files to your project for context-aware AI assistance.'}
                       </p>
                     </div>
                   </div>
