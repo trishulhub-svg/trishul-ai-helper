@@ -896,7 +896,7 @@ export default function Home() {
                           <Send className="h-4 w-4" />
                         </Button>
                       </div>
-                      <p className="text-[9px] sm:text-[10px] text-muted-foreground mt-1.5 text-center">Powered by GLM — Generate complete, production-ready code with no errors.</p>
+                      <p className="text-[9px] sm:text-[10px] text-muted-foreground mt-1.5 text-center">Powered by Trishul AI — Generate complete, production-ready code with no errors.</p>
                     </div>
                   </div>
                 </div>
@@ -979,7 +979,7 @@ export default function Home() {
                         {selectedProjectId && projectFiles.length > 0
                           ? `AI has full knowledge of your ${projectFiles.length} project files. Ask for complete, copy-paste ready code.`
                           : selectedProjectId ? 'Upload code files to your project for context-aware AI assistance.'
-                          : 'Powered by GLM — Generate complete, production-ready code with no errors.'}
+                          : 'Powered by Trishul AI — Generate complete, production-ready code with no errors.'}
                       </p>
                     </div>
                   </div>
