@@ -1,5 +1,5 @@
 import { db } from '@/lib/db';
-import { getZAI, buildSystemPrompt, buildMessages } from '@/lib/llm';
+import { getZAI, buildSystemPrompt, buildDirectChatPrompt, buildMessages } from '@/lib/llm';
 import { NextRequest, NextResponse } from 'next/server';
 
 export async function POST(req: NextRequest) {
@@ -11,7 +11,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Message is required' }, { status: 400 });
     }
 
-    // Get project context with all code files
+    // Determine mode: direct chat or project chat
+    const isDirectChat = !projectId;
+
+    // Get project context with all code files (only for project chat)
     let projectContext = null;
     if (projectId) {
       const project = await db.project.findUnique({
@@ -43,10 +46,11 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    if (!conversation && projectId) {
+    if (!conversation) {
       conversation = await db.conversation.create({
         data: {
-          projectId,
+          projectId: projectId || null,
+          mode: isDirectChat ? 'direct' : 'project',
           title: message.slice(0, 50) + (message.length > 50 ? '...' : ''),
         },
         include: { messages: [] },
@@ -54,18 +58,18 @@ export async function POST(req: NextRequest) {
     }
 
     // Save user message
-    if (conversation) {
-      await db.message.create({
-        data: {
-          conversationId: conversation.id,
-          role: 'user',
-          content: message,
-        },
-      });
-    }
+    await db.message.create({
+      data: {
+        conversationId: conversation.id,
+        role: 'user',
+        content: message,
+      },
+    });
 
-    // Build system prompt with project context
-    const systemPrompt = buildSystemPrompt(projectContext);
+    // Build system prompt based on mode
+    const systemPrompt = isDirectChat
+      ? buildDirectChatPrompt()
+      : buildSystemPrompt(projectContext);
 
     // Build conversation history
     const history = conversation?.messages?.map(m => ({
@@ -85,22 +89,20 @@ export async function POST(req: NextRequest) {
     const aiResponse = completion.choices[0]?.message?.content || 'I apologize, but I was unable to generate a response. Please try again.';
 
     // Save assistant message
-    if (conversation) {
-      await db.message.create({
-        data: {
-          conversationId: conversation.id,
-          role: 'assistant',
-          content: aiResponse,
-        },
-      });
+    await db.message.create({
+      data: {
+        conversationId: conversation.id,
+        role: 'assistant',
+        content: aiResponse,
+      },
+    });
 
-      // Update conversation title if it's the first message
-      if (conversation.messages.length === 0) {
-        await db.conversation.update({
-          where: { id: conversation.id },
-          data: { title: message.slice(0, 50) + (message.length > 50 ? '...' : '') },
-        });
-      }
+    // Update conversation title if it's the first message
+    if (conversation.messages.length === 0) {
+      await db.conversation.update({
+        where: { id: conversation.id },
+        data: { title: message.slice(0, 50) + (message.length > 50 ? '...' : '') },
+      });
     }
 
     // Parse code blocks from the response for potential auto-save
@@ -108,7 +110,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       response: aiResponse,
-      conversationId: conversation?.id || null,
+      conversationId: conversation.id,
       codeBlocks,
     });
   } catch (error) {

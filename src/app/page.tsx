@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAgentStore } from '@/store/agent-store';
 import { useToast } from '@/hooks/use-toast';
+import { useIsMobile } from '@/hooks/use-mobile';
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -27,6 +28,11 @@ import {
   FilePlus,
   Loader2,
   FileText,
+  Sparkles,
+  Menu,
+  Zap,
+  Code2,
+  Lightbulb,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -58,6 +64,13 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from '@/components/ui/sheet';
 
 // Types
 interface Project {
@@ -86,8 +99,9 @@ interface CodeFile {
 
 interface Conversation {
   id: string;
-  projectId: string;
+  projectId: string | null;
   title: string;
+  mode: string;
   createdAt: string;
   updatedAt: string;
   messages?: Message[];
@@ -143,7 +157,6 @@ function CopyButton({ text }: { text: string }) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      // Fallback for older browsers
       const textarea = document.createElement('textarea');
       textarea.value = text;
       document.body.appendChild(textarea);
@@ -169,9 +182,9 @@ function CopyButton({ text }: { text: string }) {
 }
 
 // ==================== SAVE TO PROJECT BUTTON ====================
-function SaveToProjectButton({ code, language, projectId, onSaved }: { 
-  code: string; 
-  language: string; 
+function SaveToProjectButton({ code, language, projectId, onSaved }: {
+  code: string;
+  language: string;
   projectId: string | null;
   onSaved: () => void;
 }) {
@@ -181,7 +194,6 @@ function SaveToProjectButton({ code, language, projectId, onSaved }: {
   const [filePath, setFilePath] = useState('');
   const { toast } = useToast();
 
-  // Auto-detect file path from code comment
   useEffect(() => {
     if (showDialog && projectId) {
       const filePathMatch = code.match(/\/\/\s*filepath:\s*(.+)/i) ||
@@ -276,27 +288,27 @@ function SaveToProjectButton({ code, language, projectId, onSaved }: {
 }
 
 // ==================== CHAT MESSAGE ====================
-function ChatMessage({ 
-  message, 
-  projectId, 
-  onFilesUpdated 
-}: { 
-  message: Message; 
+function ChatMessage({
+  message,
+  projectId,
+  onFilesUpdated
+}: {
+  message: Message;
   projectId: string | null;
   onFilesUpdated: () => void;
 }) {
   const isUser = message.role === 'user';
 
   return (
-    <div className={`flex gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}>
+    <div className={`flex gap-2 sm:gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}>
       {!isUser && (
-        <div className="flex-shrink-0 w-8 h-8 rounded-lg overflow-hidden flex items-center justify-center shadow-lg bg-card">
+        <div className="flex-shrink-0 w-7 h-7 sm:w-8 sm:h-8 rounded-lg overflow-hidden flex items-center justify-center shadow-lg bg-card">
           <img src="/trishul-logo.png" alt="AI" className="h-full w-full object-contain p-0.5" />
         </div>
       )}
-      <div className={`max-w-[85%] min-w-0`}>
+      <div className="max-w-[90%] sm:max-w-[85%] min-w-0">
         <div
-          className={`rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+          className={`rounded-2xl px-3 py-2.5 sm:px-4 sm:py-3 text-sm leading-relaxed ${
             isUser
               ? 'bg-primary text-primary-foreground rounded-br-md'
               : 'bg-muted text-foreground rounded-bl-md'
@@ -315,8 +327,8 @@ function ChatMessage({
                     if (match) {
                       return (
                         <div className="relative group my-3 rounded-lg overflow-hidden border border-border">
-                          <div className="flex items-center justify-between bg-zinc-800 dark:bg-zinc-900 px-3 py-1.5 text-xs text-zinc-400">
-                            <span className="font-mono">{match[1]}</span>
+                          <div className="flex items-center justify-between bg-zinc-800 dark:bg-zinc-900 px-2 sm:px-3 py-1.5 text-xs text-zinc-400">
+                            <span className="font-mono text-[10px] sm:text-xs">{match[1]}</span>
                             <div className="flex gap-1">
                               <SaveToProjectButton
                                 code={codeString}
@@ -327,20 +339,22 @@ function ChatMessage({
                               <CopyButton text={codeString} />
                             </div>
                           </div>
-                          <SyntaxHighlighter
-                            style={oneDark}
-                            language={getLanguage(match[1])}
-                            PreTag="div"
-                            customStyle={{
-                              margin: 0,
-                              borderRadius: 0,
-                              fontSize: '0.8125rem',
-                              lineHeight: '1.6',
-                            }}
-                            {...props}
-                          >
-                            {codeString}
-                          </SyntaxHighlighter>
+                          <div className="overflow-x-auto">
+                            <SyntaxHighlighter
+                              style={oneDark}
+                              language={getLanguage(match[1])}
+                              PreTag="div"
+                              customStyle={{
+                                margin: 0,
+                                borderRadius: 0,
+                                fontSize: '0.75rem',
+                                lineHeight: '1.5',
+                              }}
+                              {...props}
+                            >
+                              {codeString}
+                            </SyntaxHighlighter>
+                          </div>
                         </div>
                       );
                     }
@@ -359,10 +373,474 @@ function ChatMessage({
         </div>
       </div>
       {isUser && (
-        <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-gradient-to-br from-orange-500 to-red-500 flex items-center justify-center shadow-lg">
-          <span className="text-xs font-bold text-white">U</span>
+        <div className="flex-shrink-0 w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-gradient-to-br from-orange-500 to-red-500 flex items-center justify-center shadow-lg">
+          <span className="text-[10px] sm:text-xs font-bold text-white">U</span>
         </div>
       )}
+    </div>
+  );
+}
+
+// ==================== SIDEBAR CONTENT (shared between desktop and mobile) ====================
+function SidebarContent({
+  projects,
+  currentProject,
+  projectFiles,
+  directChats,
+  selectedProjectId,
+  selectedConversationId,
+  selectedDirectChatId,
+  expandedProjects,
+  showNewProject,
+  setShowNewProject,
+  newProjectName,
+  setNewProjectName,
+  newProjectDesc,
+  setNewProjectDesc,
+  newProjectTech,
+  setNewProjectTech,
+  handleCreateProject,
+  handleDeleteProject,
+  handleDeleteConversation,
+  handleDeleteDirectChat,
+  setSelectedProjectId,
+  setSelectedConversationId,
+  setSelectedDirectChatId,
+  toggleProjectExpand,
+  handleNewChat,
+  handleNewDirectChat,
+  showNewFile,
+  setShowNewFile,
+  showAddCode,
+  setShowAddCode,
+  newFileName,
+  setNewFileName,
+  newFilePath,
+  setNewFilePath,
+  newFileLanguage,
+  setNewFileLanguage,
+  newFileContent,
+  setNewFileContent,
+  addCodeContent,
+  setAddCodeContent,
+  handleAddFile,
+  handleAddCode,
+  handleDeleteFile,
+  handleViewFile,
+  onCloseMobile,
+}: {
+  projects: Project[];
+  currentProject: Project | null;
+  projectFiles: CodeFile[];
+  directChats: Conversation[];
+  selectedProjectId: string | null;
+  selectedConversationId: string | null;
+  selectedDirectChatId: string | null;
+  expandedProjects: Set<string>;
+  showNewProject: boolean;
+  setShowNewProject: (v: boolean) => void;
+  newProjectName: string;
+  setNewProjectName: (v: string) => void;
+  newProjectDesc: string;
+  setNewProjectDesc: (v: string) => void;
+  newProjectTech: string;
+  setNewProjectTech: (v: string) => void;
+  handleCreateProject: () => void;
+  handleDeleteProject: (id: string) => void;
+  handleDeleteConversation: (id: string) => void;
+  handleDeleteDirectChat: (id: string) => void;
+  setSelectedProjectId: (id: string | null) => void;
+  setSelectedConversationId: (id: string | null) => void;
+  setSelectedDirectChatId: (id: string | null) => void;
+  toggleProjectExpand: (id: string) => void;
+  handleNewChat: () => void;
+  handleNewDirectChat: () => void;
+  showNewFile: boolean;
+  setShowNewFile: (v: boolean) => void;
+  showAddCode: boolean;
+  setShowAddCode: (v: boolean) => void;
+  newFileName: string;
+  setNewFileName: (v: string) => void;
+  newFilePath: string;
+  setNewFilePath: (v: string) => void;
+  newFileLanguage: string;
+  setNewFileLanguage: (v: string) => void;
+  newFileContent: string;
+  setNewFileContent: (v: string) => void;
+  addCodeContent: string;
+  setAddCodeContent: (v: string) => void;
+  handleAddFile: () => void;
+  handleAddCode: () => void;
+  handleDeleteFile: (id: string) => void;
+  handleViewFile: (file: CodeFile) => void;
+  onCloseMobile?: () => void;
+}) {
+  const closeOnMobile = () => onCloseMobile?.();
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Logo Header */}
+      <div className="p-3 sm:p-4 border-b">
+        <div className="flex items-center gap-2.5 mb-3">
+          <img
+            src="/trishul-logo.png"
+            alt="Trishul AI Helper"
+            className="h-7 sm:h-8 w-auto object-contain"
+          />
+          <div>
+            <h1 className="text-xs sm:text-sm font-bold">Trishul AI Helper</h1>
+            <p className="text-[9px] sm:text-[10px] text-muted-foreground">Your AI Code Knowledge Base</p>
+          </div>
+        </div>
+
+        {/* Direct Chat Button */}
+        <Button
+          size="sm"
+          className="w-full h-8 text-xs gap-1.5 mb-2"
+          variant={selectedDirectChatId || (!selectedProjectId && !selectedDirectChatId) ? 'default' : 'outline'}
+          onClick={() => {
+            handleNewDirectChat();
+            closeOnMobile();
+          }}
+        >
+          <Sparkles className="h-3.5 w-3.5" /> Direct AI Chat
+        </Button>
+
+        {/* New Project Button */}
+        <Dialog open={showNewProject} onOpenChange={setShowNewProject}>
+          <DialogTrigger asChild>
+            <Button size="sm" variant="outline" className="w-full h-8 text-xs gap-1.5">
+              <FolderPlus className="h-3.5 w-3.5" /> New Project
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Create New Project</DialogTitle>
+              <DialogDescription>Add your project to store code and chat with AI</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3">
+              <div>
+                <label className="text-sm font-medium mb-1.5 block">Project Name *</label>
+                <Input
+                  value={newProjectName}
+                  onChange={(e) => setNewProjectName(e.target.value)}
+                  placeholder="e.g., My Web App"
+                  onKeyDown={(e) => e.key === 'Enter' && handleCreateProject()}
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1.5 block">Description</label>
+                <Textarea
+                  value={newProjectDesc}
+                  onChange={(e) => setNewProjectDesc(e.target.value)}
+                  placeholder="What is this project about?"
+                  rows={2}
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1.5 block">Tech Stack</label>
+                <Input
+                  value={newProjectTech}
+                  onChange={(e) => setNewProjectTech(e.target.value)}
+                  placeholder="e.g., Next.js, TypeScript, Prisma"
+                />
+              </div>
+              <Button onClick={handleCreateProject} disabled={!newProjectName.trim()} className="w-full">
+                <FolderPlus className="h-4 w-4 mr-2" /> Create Project
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      </div>
+
+      {/* Scrollable List */}
+      <ScrollArea className="flex-1">
+        <div className="p-2">
+          {/* Direct Chat History */}
+          {directChats.length > 0 && (
+            <div className="mb-3">
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-2 mb-1">
+                Direct Chats
+              </p>
+              {directChats.map((conv) => (
+                <div
+                  key={conv.id}
+                  className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md cursor-pointer text-xs transition-colors group ${
+                    selectedDirectChatId === conv.id
+                      ? 'bg-primary/10 text-primary font-medium'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                  }`}
+                  onClick={() => {
+                    setSelectedDirectChatId(conv.id);
+                    setSelectedProjectId(null);
+                    setSelectedConversationId(null);
+                    closeOnMobile();
+                  }}
+                >
+                  <Sparkles className="h-3 w-3 flex-shrink-0" />
+                  <span className="truncate flex-1">{conv.title}</span>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-5 w-5 opacity-0 group-hover:opacity-100"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteDirectChat(conv.id);
+                    }}
+                  >
+                    <X className="h-2.5 w-2.5" />
+                  </Button>
+                </div>
+              ))}
+              <div className="border-t my-2" />
+            </div>
+          )}
+
+          {/* Projects Section */}
+          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-2 mb-1">
+            Projects
+          </p>
+          {projects.length === 0 ? (
+            <div className="text-center py-4 text-muted-foreground text-sm">
+              <FolderOpen className="h-8 w-8 mx-auto mb-2 opacity-30" />
+              <p className="text-xs">No projects yet</p>
+            </div>
+          ) : (
+            projects.map((project) => (
+              <div key={project.id} className="mb-0.5">
+                <div
+                  className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg cursor-pointer transition-colors group ${
+                    selectedProjectId === project.id
+                      ? 'bg-primary/10 text-primary'
+                      : 'hover:bg-muted'
+                  }`}
+                  onClick={() => {
+                    setSelectedProjectId(project.id);
+                    setSelectedDirectChatId(null);
+                    toggleProjectExpand(project.id);
+                    closeOnMobile();
+                  }}
+                >
+                  {expandedProjects.has(project.id) && selectedProjectId === project.id ? (
+                    <ChevronDown className="h-3.5 w-3.5 flex-shrink-0" />
+                  ) : (
+                    <ChevronRight className="h-3.5 w-3.5 flex-shrink-0" />
+                  )}
+                  <FolderOpen className="h-4 w-4 flex-shrink-0" />
+                  <span className="text-xs sm:text-sm font-medium truncate flex-1">{project.name}</span>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <Trash2 className="h-3 w-3 text-destructive" />
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Delete Project?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This will permanently delete &quot;{project.name}&quot; and all its files and conversations.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => handleDeleteProject(project.id)}>
+                          Delete
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
+
+                {/* Expanded project content */}
+                {expandedProjects.has(project.id) && selectedProjectId === project.id && (
+                  <div className="ml-4 mt-0.5 space-y-0.5">
+                    {/* Conversations */}
+                    {currentProject?.conversations?.map((conv) => (
+                      <div
+                        key={conv.id}
+                        className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md cursor-pointer text-xs transition-colors group ${
+                          selectedConversationId === conv.id
+                            ? 'bg-primary/10 text-primary font-medium'
+                            : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                        }`}
+                        onClick={() => {
+                          setSelectedConversationId(conv.id);
+                          closeOnMobile();
+                        }}
+                      >
+                        <MessageSquare className="h-3 w-3 flex-shrink-0" />
+                        <span className="truncate flex-1">{conv.title}</span>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-5 w-5 opacity-0 group-hover:opacity-100"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteConversation(conv.id);
+                          }}
+                        >
+                          <X className="h-2.5 w-2.5" />
+                        </Button>
+                      </div>
+                    ))}
+
+                    {/* New Chat Button */}
+                    <button
+                      className="flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted w-full transition-colors"
+                      onClick={handleNewChat}
+                    >
+                      <Plus className="h-3 w-3" /> New Chat
+                    </button>
+
+                    <div className="border-t my-1" />
+
+                    {/* Code Files */}
+                    {projectFiles.map((file) => (
+                      <div
+                        key={file.id}
+                        className="flex items-center gap-1.5 px-2 py-1.5 rounded-md cursor-pointer text-xs transition-colors group hover:bg-muted"
+                        onClick={() => handleViewFile(file)}
+                      >
+                        <FileCode2 className="h-3 w-3 flex-shrink-0 text-emerald-500" />
+                        <span className="truncate flex-1 text-muted-foreground group-hover:text-foreground">
+                          {file.filePath}
+                        </span>
+                        <Badge variant="secondary" className="h-4 px-1 text-[9px]">
+                          v{file.version}
+                        </Badge>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-5 w-5 opacity-0 group-hover:opacity-100"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteFile(file.id);
+                          }}
+                        >
+                          <X className="h-2.5 w-2.5" />
+                        </Button>
+                      </div>
+                    ))}
+
+                    {/* Add File / Add Code Buttons */}
+                    <div className="flex gap-1 pt-1">
+                      <Dialog open={showNewFile} onOpenChange={(open) => {
+                        setShowNewFile(open);
+                        if (!open) {
+                          setNewFileName('');
+                          setNewFilePath('');
+                          setNewFileLanguage('typescript');
+                          setNewFileContent('');
+                        }
+                      }}>
+                        <DialogTrigger asChild>
+                          <button className="flex items-center gap-1 px-2 py-1.5 rounded-md text-[10px] sm:text-xs text-muted-foreground hover:text-foreground hover:bg-muted flex-1 transition-colors border border-dashed border-border">
+                            <FilePlus className="h-3 w-3" /> Add File
+                          </button>
+                        </DialogTrigger>
+                        <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
+                          <DialogHeader>
+                            <DialogTitle>Add Code File</DialogTitle>
+                            <DialogDescription>Add a new code file to your project</DialogDescription>
+                          </DialogHeader>
+                          <div className="space-y-3">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              <div>
+                                <label className="text-sm font-medium mb-1.5 block">File Name *</label>
+                                <Input
+                                  value={newFileName}
+                                  onChange={(e) => setNewFileName(e.target.value)}
+                                  placeholder="e.g., page.tsx"
+                                  autoFocus
+                                />
+                              </div>
+                              <div>
+                                <label className="text-sm font-medium mb-1.5 block">File Path *</label>
+                                <Input
+                                  value={newFilePath}
+                                  onChange={(e) => setNewFilePath(e.target.value)}
+                                  placeholder="e.g., src/app/page.tsx"
+                                />
+                              </div>
+                            </div>
+                            <div>
+                              <label className="text-sm font-medium mb-1.5 block">Language</label>
+                              <Input
+                                value={newFileLanguage}
+                                onChange={(e) => setNewFileLanguage(e.target.value)}
+                                placeholder="e.g., typescript"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-sm font-medium mb-1.5 block">Code Content *</label>
+                              <Textarea
+                                value={newFileContent}
+                                onChange={(e) => setNewFileContent(e.target.value)}
+                                placeholder="Paste your code here..."
+                                rows={12}
+                                className="font-mono text-xs"
+                              />
+                            </div>
+                            <Button onClick={handleAddFile} disabled={!newFileName.trim() || !newFilePath.trim()} className="w-full">
+                              <FilePlus className="h-4 w-4 mr-2" /> Add File
+                            </Button>
+                          </div>
+                        </DialogContent>
+                      </Dialog>
+
+                      <Dialog open={showAddCode} onOpenChange={(open) => {
+                        setShowAddCode(open);
+                        if (!open) setAddCodeContent('');
+                      }}>
+                        <DialogTrigger asChild>
+                          <button className="flex items-center gap-1 px-2 py-1.5 rounded-md text-[10px] sm:text-xs text-muted-foreground hover:text-foreground hover:bg-muted flex-1 transition-colors border border-dashed border-border">
+                            <Pencil className="h-3 w-3" /> Paste Code
+                          </button>
+                        </DialogTrigger>
+                        <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
+                          <DialogHeader>
+                            <DialogTitle>Paste Code</DialogTitle>
+                            <DialogDescription>Paste your code and it will be saved as a file</DialogDescription>
+                          </DialogHeader>
+                          <div className="space-y-3">
+                            <p className="text-xs text-muted-foreground">
+                              Paste your code below. Add a <code className="bg-muted px-1 rounded">{'// filepath: /path/to/file.ts'}</code> comment at the top for automatic file path detection.
+                            </p>
+                            <Textarea
+                              value={addCodeContent}
+                              onChange={(e) => setAddCodeContent(e.target.value)}
+                              placeholder={`// filepath: src/app/page.tsx\n\nexport default function Page() {\n  return <div>Hello World</div>;\n}`}
+                              rows={16}
+                              className="font-mono text-xs"
+                              autoFocus
+                            />
+                            <Button onClick={handleAddCode} disabled={!addCodeContent.trim()} className="w-full">
+                              <Save className="h-4 w-4 mr-2" /> Save Code
+                            </Button>
+                          </div>
+                        </DialogContent>
+                      </Dialog>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      </ScrollArea>
+
+      {/* Sidebar Footer */}
+      <div className="p-2 sm:p-3 border-t">
+        <div className="text-[9px] sm:text-[10px] text-muted-foreground text-center">
+          Trishul AI Helper • by Trishulhub
+        </div>
+      </div>
     </div>
   );
 }
@@ -382,6 +860,7 @@ export default function Home() {
   } = useAgentStore();
 
   const { toast } = useToast();
+  const isMobile = useIsMobile();
 
   // Data states
   const [projects, setProjects] = useState<Project[]>([]);
@@ -389,12 +868,15 @@ export default function Home() {
   const [currentConversation, setCurrentConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [projectFiles, setProjectFiles] = useState<CodeFile[]>([]);
+  const [directChats, setDirectChats] = useState<Conversation[]>([]);
+  const [selectedDirectChatId, setSelectedDirectChatId] = useState<string | null>(null);
 
   // UI states
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
   const [viewingFile, setViewingFile] = useState<CodeFile | null>(null);
+  const [mobileSheetOpen, setMobileSheetOpen] = useState(false);
 
   // Dialog states
   const [showNewProject, setShowNewProject] = useState(false);
@@ -412,6 +894,9 @@ export default function Home() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
+  // Determine current mode
+  const isDirectMode = !selectedProjectId;
+
   // Fetch projects
   const fetchProjects = useCallback(async () => {
     try {
@@ -422,6 +907,19 @@ export default function Home() {
       }
     } catch (error) {
       console.error('Failed to fetch projects:', error);
+    }
+  }, []);
+
+  // Fetch direct chats
+  const fetchDirectChats = useCallback(async () => {
+    try {
+      const res = await fetch('/api/direct-chats');
+      if (res.ok) {
+        const data = await res.json();
+        setDirectChats(data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch direct chats:', error);
     }
   }, []);
 
@@ -444,11 +942,11 @@ export default function Home() {
     }
   }, [selectedProjectId]);
 
-  // Fetch conversation messages — use direct ID parameter to avoid stale closures
+  // Fetch conversation messages
   const fetchMessages = useCallback(async (convId?: string) => {
     const id = convId || selectedConversationId;
     if (!id) {
-      setMessages([]);
+      if (!selectedDirectChatId) setMessages([]);
       return;
     }
     try {
@@ -461,12 +959,31 @@ export default function Home() {
     } catch (error) {
       console.error('Failed to fetch messages:', error);
     }
-  }, [selectedConversationId]);
+  }, [selectedConversationId, selectedDirectChatId]);
+
+  // Fetch direct chat messages
+  const fetchDirectChatMessages = useCallback(async (convId?: string) => {
+    const id = convId || selectedDirectChatId;
+    if (!id) {
+      setMessages([]);
+      return;
+    }
+    try {
+      const res = await fetch(`/api/conversations/${id}`);
+      if (res.ok) {
+        const data = await res.json();
+        setMessages(data.messages || []);
+      }
+    } catch (error) {
+      console.error('Failed to fetch direct chat messages:', error);
+    }
+  }, [selectedDirectChatId]);
 
   // Initial load
   useEffect(() => {
     fetchProjects();
-  }, [fetchProjects]);
+    fetchDirectChats();
+  }, [fetchProjects, fetchDirectChats]);
 
   // Reload project details when project changes
   useEffect(() => {
@@ -475,8 +992,14 @@ export default function Home() {
 
   // Reload messages when conversation changes
   useEffect(() => {
-    fetchMessages();
-  }, [fetchMessages]);
+    if (selectedDirectChatId) {
+      fetchDirectChatMessages();
+    } else if (selectedConversationId) {
+      fetchMessages();
+    } else {
+      setMessages([]);
+    }
+  }, [selectedConversationId, selectedDirectChatId, fetchMessages, fetchDirectChatMessages]);
 
   // Auto-scroll messages
   useEffect(() => {
@@ -507,7 +1030,7 @@ export default function Home() {
       setNewProjectDesc('');
       setNewProjectTech('');
       setSelectedProjectId(project.id);
-      // Auto-expand the new project
+      setSelectedDirectChatId(null);
       setExpandedProjects(prev => new Set(prev).add(project.id));
       fetchProjects();
     } catch (err) {
@@ -582,7 +1105,7 @@ export default function Home() {
     if (!selectedProjectId || !addCodeContent.trim()) return;
     const filePathMatch = addCodeContent.match(/\/\/\s*filepath:\s*(.+)/i) ||
                           addCodeContent.match(/<!--\s*filepath:\s*(.+)\s*-->/i);
-    
+
     const filePath = filePathMatch ? filePathMatch[1].trim() : 'untitled.txt';
     const fileName = filePath.split('/').pop() || 'untitled.txt';
     const ext = fileName.split('.').pop() || 'txt';
@@ -627,7 +1150,23 @@ export default function Home() {
     }
   };
 
-  // Send message — FIX: pass conversation ID directly to avoid stale closure
+  // Delete direct chat
+  const handleDeleteDirectChat = async (id: string) => {
+    try {
+      const res = await fetch(`/api/conversations/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Failed to delete');
+      if (selectedDirectChatId === id) {
+        setSelectedDirectChatId(null);
+        setMessages([]);
+      }
+      fetchDirectChats();
+      toast({ title: 'Direct chat deleted' });
+    } catch {
+      toast({ title: 'Error', description: 'Failed to delete chat', variant: 'destructive' });
+    }
+  };
+
+  // Send message
   const handleSendMessage = async () => {
     if (!inputMessage.trim() || isLoading) return;
 
@@ -635,10 +1174,9 @@ export default function Home() {
     setInputMessage('');
     setIsLoading(true);
 
-    // Optimistically add user message
     const tempUserMsg: Message = {
       id: 'temp-' + Date.now(),
-      conversationId: selectedConversationId || '',
+      conversationId: selectedDirectChatId || selectedConversationId || '',
       role: 'user',
       content: userMessage,
       createdAt: new Date().toISOString(),
@@ -650,8 +1188,8 @@ export default function Home() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          projectId: selectedProjectId,
-          conversationId: selectedConversationId,
+          projectId: selectedProjectId || undefined,
+          conversationId: selectedDirectChatId || selectedConversationId || undefined,
           message: userMessage,
         }),
       });
@@ -661,11 +1199,15 @@ export default function Home() {
         const newConvId = data.conversationId;
 
         // Update conversation ID if new
-        if (newConvId && !selectedConversationId) {
-          setSelectedConversationId(newConvId);
+        if (newConvId && !selectedDirectChatId && !selectedConversationId) {
+          if (isDirectMode) {
+            setSelectedDirectChatId(newConvId);
+          } else {
+            setSelectedConversationId(newConvId);
+          }
         }
 
-        // FIX: Fetch messages directly with the conversation ID to avoid stale closure
+        // Fetch messages directly
         if (newConvId) {
           try {
             const msgRes = await fetch(`/api/conversations/${newConvId}`);
@@ -679,15 +1221,19 @@ export default function Home() {
           }
         }
 
-        // Refresh project details (conversations list, file count)
-        fetchProjectDetails();
-        fetchProjects();
+        // Refresh lists
+        if (isDirectMode) {
+          fetchDirectChats();
+        } else {
+          fetchProjectDetails();
+          fetchProjects();
+        }
       } else {
         const errData = await res.json().catch(() => ({}));
         toast({ title: 'Error', description: errData.error || 'Failed to get response', variant: 'destructive' });
         setMessages(prev => prev.filter(m => m.id !== tempUserMsg.id));
       }
-    } catch (err) {
+    } catch {
       toast({ title: 'Network Error', description: 'Could not connect to the server', variant: 'destructive' });
       setMessages(prev => prev.filter(m => m.id !== tempUserMsg.id));
     } finally {
@@ -695,8 +1241,18 @@ export default function Home() {
     }
   };
 
-  // New chat
+  // New chat (project context)
   const handleNewChat = () => {
+    setSelectedConversationId(null);
+    setMessages([]);
+    setCurrentConversation(null);
+    inputRef.current?.focus();
+  };
+
+  // New direct chat
+  const handleNewDirectChat = () => {
+    setSelectedDirectChatId(null);
+    setSelectedProjectId(null);
     setSelectedConversationId(null);
     setMessages([]);
     setCurrentConversation(null);
@@ -727,354 +1283,135 @@ export default function Home() {
     }
   };
 
+  // Sidebar props object to share
+  const sidebarProps = {
+    projects,
+    currentProject,
+    projectFiles,
+    directChats,
+    selectedProjectId,
+    selectedConversationId,
+    selectedDirectChatId,
+    expandedProjects,
+    showNewProject,
+    setShowNewProject,
+    newProjectName,
+    setNewProjectName,
+    newProjectDesc,
+    setNewProjectDesc,
+    newProjectTech,
+    setNewProjectTech,
+    handleCreateProject,
+    handleDeleteProject,
+    handleDeleteConversation,
+    handleDeleteDirectChat,
+    setSelectedProjectId,
+    setSelectedConversationId,
+    setSelectedDirectChatId,
+    toggleProjectExpand,
+    handleNewChat,
+    handleNewDirectChat,
+    showNewFile,
+    setShowNewFile,
+    showAddCode,
+    setShowAddCode,
+    newFileName,
+    setNewFileName,
+    newFilePath,
+    setNewFilePath,
+    newFileLanguage,
+    setNewFileLanguage,
+    newFileContent,
+    setNewFileContent,
+    addCodeContent,
+    setAddCodeContent,
+    handleAddFile,
+    handleAddCode,
+    handleDeleteFile,
+    handleViewFile,
+    onCloseMobile: () => setMobileSheetOpen(false),
+  };
+
   return (
     <TooltipProvider>
       <div className="h-screen flex bg-background overflow-hidden">
-        {/* ========== SIDEBAR ========== */}
-        <div
-          className={`flex flex-col border-r bg-card transition-all duration-300 ${
-            sidebarOpen ? 'w-72 min-w-72' : 'w-0 min-w-0 overflow-hidden'
-          }`}
-        >
-          {/* Sidebar Header */}
-          <div className="p-4 border-b">
-            <div className="flex items-center gap-2.5 mb-3">
-              <img
-                src="/trishul-logo.png"
-                alt="Trishul AI Helper"
-                className="h-8 w-auto object-contain"
-              />
-              <div>
-                <h1 className="text-sm font-bold">Trishul AI Helper</h1>
-                <p className="text-[10px] text-muted-foreground">Your Code Knowledge Base</p>
-              </div>
-            </div>
-            <Dialog open={showNewProject} onOpenChange={setShowNewProject}>
-              <DialogTrigger asChild>
-                <Button size="sm" className="flex-1 h-8 text-xs gap-1.5 w-full">
-                  <FolderPlus className="h-3.5 w-3.5" /> New Project
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="sm:max-w-md">
-                <DialogHeader>
-                  <DialogTitle>Create New Project</DialogTitle>
-                  <DialogDescription>Add your project to store code and chat with AI</DialogDescription>
-                </DialogHeader>
-                <div className="space-y-3">
-                  <div>
-                    <label className="text-sm font-medium mb-1.5 block">Project Name *</label>
-                    <Input
-                      value={newProjectName}
-                      onChange={(e) => setNewProjectName(e.target.value)}
-                      placeholder="e.g., My Web App"
-                      onKeyDown={(e) => e.key === 'Enter' && handleCreateProject()}
-                      autoFocus
-                    />
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium mb-1.5 block">Description</label>
-                    <Textarea
-                      value={newProjectDesc}
-                      onChange={(e) => setNewProjectDesc(e.target.value)}
-                      placeholder="What is this project about?"
-                      rows={2}
-                    />
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium mb-1.5 block">Tech Stack</label>
-                    <Input
-                      value={newProjectTech}
-                      onChange={(e) => setNewProjectTech(e.target.value)}
-                      placeholder="e.g., Next.js, TypeScript, Prisma"
-                    />
-                  </div>
-                  <Button onClick={handleCreateProject} disabled={!newProjectName.trim()} className="w-full">
-                    <FolderPlus className="h-4 w-4 mr-2" /> Create Project
-                  </Button>
-                </div>
-              </DialogContent>
-            </Dialog>
+        {/* ========== DESKTOP SIDEBAR ========== */}
+        {!isMobile && (
+          <div
+            className={`hidden md:flex flex-col border-r bg-card transition-all duration-300 ${
+              sidebarOpen ? 'w-72 min-w-72' : 'w-0 min-w-0 overflow-hidden'
+            }`}
+          >
+            <SidebarContent {...sidebarProps} />
           </div>
-
-          {/* Project List */}
-          <ScrollArea className="flex-1">
-            <div className="p-2">
-              {projects.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground text-sm">
-                  <FolderOpen className="h-10 w-10 mx-auto mb-2 opacity-30" />
-                  <p>No projects yet</p>
-                  <p className="text-xs mt-1">Create your first project to get started</p>
-                </div>
-              ) : (
-                projects.map((project) => (
-                  <div key={project.id} className="mb-1">
-                    <div
-                      className={`flex items-center gap-1.5 px-2 py-2 rounded-lg cursor-pointer transition-colors group ${
-                        selectedProjectId === project.id
-                          ? 'bg-primary/10 text-primary'
-                          : 'hover:bg-muted'
-                      }`}
-                      onClick={() => {
-                        setSelectedProjectId(project.id);
-                        toggleProjectExpand(project.id);
-                      }}
-                    >
-                      {expandedProjects.has(project.id) && selectedProjectId === project.id ? (
-                        <ChevronDown className="h-3.5 w-3.5 flex-shrink-0" />
-                      ) : (
-                        <ChevronRight className="h-3.5 w-3.5 flex-shrink-0" />
-                      )}
-                      <FolderOpen className="h-4 w-4 flex-shrink-0" />
-                      <span className="text-sm font-medium truncate flex-1">{project.name}</span>
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <Trash2 className="h-3 w-3 text-destructive" />
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Delete Project?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              This will permanently delete &quot;{project.name}&quot; and all its files and conversations.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => handleDeleteProject(project.id)}>
-                              Delete
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    </div>
-
-                    {/* Expanded project content */}
-                    {expandedProjects.has(project.id) && selectedProjectId === project.id && (
-                      <div className="ml-4 mt-1 space-y-0.5">
-                        {/* Conversations */}
-                        {currentProject?.conversations?.map((conv) => (
-                          <div
-                            key={conv.id}
-                            className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md cursor-pointer text-xs transition-colors group ${
-                              selectedConversationId === conv.id
-                                ? 'bg-primary/10 text-primary font-medium'
-                                : 'text-muted-foreground hover:text-foreground hover:bg-muted'
-                            }`}
-                            onClick={() => setSelectedConversationId(conv.id)}
-                          >
-                            <MessageSquare className="h-3 w-3 flex-shrink-0" />
-                            <span className="truncate flex-1">{conv.title}</span>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-5 w-5 opacity-0 group-hover:opacity-100"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDeleteConversation(conv.id);
-                              }}
-                            >
-                              <X className="h-2.5 w-2.5" />
-                            </Button>
-                          </div>
-                        ))}
-
-                        {/* New Chat Button */}
-                        <button
-                          className="flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted w-full transition-colors"
-                          onClick={handleNewChat}
-                        >
-                          <Plus className="h-3 w-3" /> New Chat
-                        </button>
-
-                        <div className="border-t my-1.5" />
-
-                        {/* Code Files */}
-                        {projectFiles.map((file) => (
-                          <div
-                            key={file.id}
-                            className="flex items-center gap-1.5 px-2 py-1.5 rounded-md cursor-pointer text-xs transition-colors group hover:bg-muted"
-                            onClick={() => handleViewFile(file)}
-                          >
-                            <FileCode2 className="h-3 w-3 flex-shrink-0 text-emerald-500" />
-                            <span className="truncate flex-1 text-muted-foreground group-hover:text-foreground">
-                              {file.filePath}
-                            </span>
-                            <Badge variant="secondary" className="h-4 px-1 text-[9px]">
-                              v{file.version}
-                            </Badge>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-5 w-5 opacity-0 group-hover:opacity-100"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDeleteFile(file.id);
-                              }}
-                            >
-                              <X className="h-2.5 w-2.5" />
-                            </Button>
-                          </div>
-                        ))}
-
-                        {/* Add File / Add Code Buttons */}
-                        <div className="flex gap-1 pt-1">
-                          <Dialog open={showNewFile} onOpenChange={(open) => {
-                            setShowNewFile(open);
-                            if (!open) {
-                              setNewFileName('');
-                              setNewFilePath('');
-                              setNewFileLanguage('typescript');
-                              setNewFileContent('');
-                            }
-                          }}>
-                            <DialogTrigger asChild>
-                              <button className="flex items-center gap-1 px-2 py-1.5 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted flex-1 transition-colors border border-dashed border-border">
-                                <FilePlus className="h-3 w-3" /> Add File
-                              </button>
-                            </DialogTrigger>
-                            <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
-                              <DialogHeader>
-                                <DialogTitle>Add Code File</DialogTitle>
-                                <DialogDescription>Add a new code file to your project</DialogDescription>
-                              </DialogHeader>
-                              <div className="space-y-3">
-                                <div className="grid grid-cols-2 gap-3">
-                                  <div>
-                                    <label className="text-sm font-medium mb-1.5 block">File Name *</label>
-                                    <Input
-                                      value={newFileName}
-                                      onChange={(e) => setNewFileName(e.target.value)}
-                                      placeholder="e.g., page.tsx"
-                                      autoFocus
-                                    />
-                                  </div>
-                                  <div>
-                                    <label className="text-sm font-medium mb-1.5 block">File Path *</label>
-                                    <Input
-                                      value={newFilePath}
-                                      onChange={(e) => setNewFilePath(e.target.value)}
-                                      placeholder="e.g., src/app/page.tsx"
-                                    />
-                                  </div>
-                                </div>
-                                <div>
-                                  <label className="text-sm font-medium mb-1.5 block">Language</label>
-                                  <Input
-                                    value={newFileLanguage}
-                                    onChange={(e) => setNewFileLanguage(e.target.value)}
-                                    placeholder="e.g., typescript"
-                                  />
-                                </div>
-                                <div>
-                                  <label className="text-sm font-medium mb-1.5 block">Code Content *</label>
-                                  <Textarea
-                                    value={newFileContent}
-                                    onChange={(e) => setNewFileContent(e.target.value)}
-                                    placeholder="Paste your code here..."
-                                    rows={12}
-                                    className="font-mono text-xs"
-                                  />
-                                </div>
-                                <Button onClick={handleAddFile} disabled={!newFileName.trim() || !newFilePath.trim()} className="w-full">
-                                  <FilePlus className="h-4 w-4 mr-2" /> Add File
-                                </Button>
-                              </div>
-                            </DialogContent>
-                          </Dialog>
-
-                          <Dialog open={showAddCode} onOpenChange={(open) => {
-                            setShowAddCode(open);
-                            if (!open) setAddCodeContent('');
-                          }}>
-                            <DialogTrigger asChild>
-                              <button className="flex items-center gap-1 px-2 py-1.5 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted flex-1 transition-colors border border-dashed border-border">
-                                <Pencil className="h-3 w-3" /> Paste Code
-                              </button>
-                            </DialogTrigger>
-                            <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
-                              <DialogHeader>
-                                <DialogTitle>Paste Code</DialogTitle>
-                                <DialogDescription>Paste your code and it will be saved as a file</DialogDescription>
-                              </DialogHeader>
-                              <div className="space-y-3">
-                                <p className="text-xs text-muted-foreground">
-                                  Paste your code below. Add a <code className="bg-muted px-1 rounded">{'// filepath: /path/to/file.ts'}</code> comment at the top for automatic file path detection.
-                                </p>
-                                <Textarea
-                                  value={addCodeContent}
-                                  onChange={(e) => setAddCodeContent(e.target.value)}
-                                  placeholder={`// filepath: src/app/page.tsx\n\nexport default function Page() {\n  return <div>Hello World</div>;\n}`}
-                                  rows={16}
-                                  className="font-mono text-xs"
-                                  autoFocus
-                                />
-                                <Button onClick={handleAddCode} disabled={!addCodeContent.trim()} className="w-full">
-                                  <Save className="h-4 w-4 mr-2" /> Save Code
-                                </Button>
-                              </div>
-                            </DialogContent>
-                          </Dialog>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))
-              )}
-            </div>
-          </ScrollArea>
-
-          {/* Sidebar Footer */}
-          <div className="p-3 border-t">
-            <div className="text-[10px] text-muted-foreground text-center">
-              Trishul AI Helper • by Trishulhub
-            </div>
-          </div>
-        </div>
+        )}
 
         {/* ========== MAIN CONTENT ========== */}
         <div className="flex-1 flex flex-col min-w-0">
           {/* Top Bar */}
-          <div className="h-12 border-b flex items-center gap-3 px-4 flex-shrink-0">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-            >
-              {sidebarOpen ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
-            </Button>
+          <div className="h-12 border-b flex items-center gap-2 sm:gap-3 px-3 sm:px-4 flex-shrink-0">
+            {/* Mobile menu button */}
+            {isMobile && (
+              <Sheet open={mobileSheetOpen} onOpenChange={setMobileSheetOpen}>
+                <SheetTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-8 w-8">
+                    <Menu className="h-4 w-4" />
+                  </Button>
+                </SheetTrigger>
+                <SheetContent side="left" className="w-72 p-0">
+                  <SheetHeader className="sr-only">
+                    <SheetTitle>Navigation</SheetTitle>
+                  </SheetHeader>
+                  <SidebarContent {...sidebarProps} />
+                </SheetContent>
+              </Sheet>
+            )}
+
+            {/* Desktop sidebar toggle */}
+            {!isMobile && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={() => setSidebarOpen(!sidebarOpen)}
+              >
+                {sidebarOpen ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
+              </Button>
+            )}
+
             <img
               src="/trishul-banner.png"
               alt="Trishulhub"
-              className="h-7 w-auto object-contain hidden sm:block"
+              className="h-6 sm:h-7 w-auto object-contain hidden sm:block"
             />
+
             <div className="flex items-center gap-2 flex-1 min-w-0">
-              {currentProject ? (
+              {selectedProjectId && currentProject ? (
                 <>
                   <FolderOpen className="h-4 w-4 text-emerald-500 flex-shrink-0" />
-                  <span className="text-sm font-medium truncate">{currentProject.name}</span>
+                  <span className="text-xs sm:text-sm font-medium truncate">{currentProject.name}</span>
                   {currentProject.techStack && (
-                    <Badge variant="secondary" className="text-[10px] flex-shrink-0">
+                    <Badge variant="secondary" className="text-[9px] sm:text-[10px] flex-shrink-0 hidden sm:flex">
                       {currentProject.techStack}
                     </Badge>
                   )}
-                  <span className="text-xs text-muted-foreground flex-shrink-0">
+                  <span className="text-[10px] sm:text-xs text-muted-foreground flex-shrink-0">
                     • {projectFiles.length} files
                   </span>
                 </>
               ) : (
-                <span className="text-sm text-muted-foreground">Select or create a project to get started</span>
+                <div className="flex items-center gap-1.5">
+                  <Sparkles className="h-4 w-4 text-amber-500" />
+                  <span className="text-xs sm:text-sm text-muted-foreground">
+                    {selectedDirectChatId ? 'Direct AI Chat' : 'Trishul AI — Ask me anything!'}
+                  </span>
+                </div>
               )}
             </div>
+
             {selectedProjectId && (
               <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5" onClick={handleNewChat}>
-                <Plus className="h-3 w-3" /> New Chat
+                <Plus className="h-3 w-3" /> <span className="hidden sm:inline">New Chat</span>
               </Button>
             )}
           </div>
@@ -1083,61 +1420,87 @@ export default function Home() {
           <div className="flex-1 flex min-h-0">
             {/* Chat Area */}
             <div className="flex-1 flex flex-col min-w-0">
-              {!selectedProjectId ? (
-                /* Welcome Screen */
-                <div className="flex-1 flex items-center justify-center p-8">
-                  <div className="text-center max-w-md">
+              {/* Welcome Screen - show only when no chat is active */}
+              {messages.length === 0 && !selectedDirectChatId && !selectedConversationId ? (
+                <div className="flex-1 flex items-center justify-center p-4 sm:p-8">
+                  <div className="text-center max-w-lg w-full">
                     <img
                       src="/trishul-logo.png"
                       alt="Trishul AI Helper"
-                      className="h-16 w-auto object-contain mx-auto mb-6"
+                      className="h-12 sm:h-16 w-auto object-contain mx-auto mb-4 sm:mb-6"
                     />
-                    <h2 className="text-2xl font-bold mb-2">Welcome to Trishul AI Helper</h2>
-                    <p className="text-muted-foreground mb-6">
-                      Your AI-powered code knowledge base. Store your company&apos;s projects and code,
-                      then chat with AI to generate updates, fix bugs, and build new features.
+                    <h2 className="text-xl sm:text-2xl font-bold mb-2">Welcome to Trishul AI Helper</h2>
+                    <p className="text-sm sm:text-base text-muted-foreground mb-4 sm:mb-6">
+                      Your AI-powered code knowledge base. Chat directly with AI or create a project to store your code.
                     </p>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-left">
-                      <div className="rounded-xl border p-4 hover:border-emerald-500/50 transition-colors cursor-pointer" onClick={() => setShowNewProject(true)}>
+
+                    {/* Action Cards */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-left mb-6">
+                      <button
+                        className="rounded-xl border p-3 sm:p-4 hover:border-amber-500/50 hover:bg-amber-500/5 transition-colors cursor-pointer"
+                        onClick={handleNewDirectChat}
+                      >
+                        <Sparkles className="h-5 w-5 text-amber-500 mb-2" />
+                        <h3 className="text-sm font-semibold mb-1">Direct AI Chat</h3>
+                        <p className="text-xs text-muted-foreground">Ask AI to write, fix, or explain any code</p>
+                      </button>
+                      <button
+                        className="rounded-xl border p-3 sm:p-4 hover:border-emerald-500/50 hover:bg-emerald-500/5 transition-colors cursor-pointer"
+                        onClick={() => setShowNewProject(true)}
+                      >
                         <FolderPlus className="h-5 w-5 text-emerald-500 mb-2" />
                         <h3 className="text-sm font-semibold mb-1">Create Project</h3>
-                        <p className="text-xs text-muted-foreground">Add your project with its tech stack details</p>
-                      </div>
-                      <div className="rounded-xl border p-4 hover:border-emerald-500/50 transition-colors">
-                        <FileCode2 className="h-5 w-5 text-emerald-500 mb-2" />
-                        <h3 className="text-sm font-semibold mb-1">Upload Code</h3>
-                        <p className="text-xs text-muted-foreground">Paste or type all your project files</p>
-                      </div>
-                      <div className="rounded-xl border p-4 hover:border-emerald-500/50 transition-colors">
-                        <Bot className="h-5 w-5 text-emerald-500 mb-2" />
-                        <h3 className="text-sm font-semibold mb-1">Chat & Generate</h3>
-                        <p className="text-xs text-muted-foreground">Ask AI to update, fix, or create code</p>
-                      </div>
+                        <p className="text-xs text-muted-foreground">Store your project code and chat with context</p>
+                      </button>
+                    </div>
+
+                    {/* Quick Suggestions */}
+                    <div className="flex flex-wrap justify-center gap-2">
+                      {[
+                        { icon: <Code2 className="h-3 w-3" />, text: 'Build a REST API' },
+                        { icon: <Zap className="h-3 w-3" />, text: 'Fix my code' },
+                        { icon: <Lightbulb className="h-3 w-3" />, text: 'Explain a concept' },
+                        { icon: <Bot className="h-3 w-3" />, text: 'Create a component' },
+                      ].map((suggestion) => (
+                        <button
+                          key={suggestion.text}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs hover:bg-muted transition-colors"
+                          onClick={() => {
+                            setInputMessage(suggestion.text);
+                            handleNewDirectChat();
+                            setTimeout(() => inputRef.current?.focus(), 100);
+                          }}
+                        >
+                          {suggestion.icon}
+                          {suggestion.text}
+                        </button>
+                      ))}
                     </div>
                   </div>
                 </div>
               ) : (
                 /* Chat Interface */
                 <>
-                  <ScrollArea className="flex-1 p-4">
-                    <div className="max-w-4xl mx-auto space-y-4">
-                      {messages.length === 0 && (
-                        <div className="text-center py-12">
+                  <ScrollArea className="flex-1 p-3 sm:p-4">
+                    <div className="max-w-4xl mx-auto space-y-3 sm:space-y-4">
+                      {/* Chat header for empty messages */}
+                      {messages.length === 0 && selectedProjectId && (
+                        <div className="text-center py-8 sm:py-12">
                           <img
                             src="/trishul-logo.png"
                             alt="Trishul AI Helper"
-                            className="h-12 w-auto object-contain mx-auto mb-4 opacity-80"
+                            className="h-10 sm:h-12 w-auto object-contain mx-auto mb-3 sm:mb-4 opacity-80"
                           />
-                          <h3 className="text-lg font-semibold mb-1">Ready to Code</h3>
-                          <p className="text-sm text-muted-foreground mb-6">
+                          <h3 className="text-base sm:text-lg font-semibold mb-1">Ready to Code</h3>
+                          <p className="text-xs sm:text-sm text-muted-foreground mb-4 sm:mb-6">
                             I have full knowledge of your project{projectFiles.length > 0 ? ` (${projectFiles.length} files loaded)` : ''}. Ask me to update code, add features, fix bugs, or explain anything.
                           </p>
                           <div className="flex flex-wrap justify-center gap-2">
                             {[
                               'Update the code with new features',
                               'Review my code for bugs',
-                              'Add authentication to my project',
-                              'Explain how my codebase works',
+                              'Add authentication',
+                              'Explain my codebase',
                             ].map((suggestion) => (
                               <button
                                 key={suggestion}
@@ -1164,14 +1527,14 @@ export default function Home() {
                       ))}
 
                       {isLoading && (
-                        <div className="flex gap-3">
-                          <div className="flex-shrink-0 w-8 h-8 rounded-lg overflow-hidden flex items-center justify-center bg-card">
+                        <div className="flex gap-2 sm:gap-3">
+                          <div className="flex-shrink-0 w-7 h-7 sm:w-8 sm:h-8 rounded-lg overflow-hidden flex items-center justify-center bg-card">
                             <img src="/trishul-logo.png" alt="AI" className="h-full w-full object-contain p-0.5" />
                           </div>
-                          <div className="bg-muted rounded-2xl rounded-bl-md px-4 py-3">
-                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                              Analyzing your codebase...
+                          <div className="bg-muted rounded-2xl rounded-bl-md px-3 py-2.5 sm:px-4 sm:py-3">
+                            <div className="flex items-center gap-2 text-xs sm:text-sm text-muted-foreground">
+                              <Loader2 className="h-3.5 w-3.5 sm:h-4 sm:w-4 animate-spin" />
+                              {selectedProjectId ? 'Analyzing your codebase...' : 'Thinking...'}
                             </div>
                           </div>
                         </div>
@@ -1182,7 +1545,7 @@ export default function Home() {
                   </ScrollArea>
 
                   {/* Input Area */}
-                  <div className="border-t p-4">
+                  <div className="border-t p-3 sm:p-4">
                     <div className="max-w-4xl mx-auto">
                       <div className="flex gap-2 items-end">
                         <div className="flex-1 relative">
@@ -1193,12 +1556,12 @@ export default function Home() {
                             onKeyDown={handleKeyDown}
                             placeholder={
                               selectedProjectId
-                                ? 'Ask AI to generate, update, or fix your code... (Press Enter to send)'
-                                : 'Select a project first...'
+                                ? 'Ask AI to generate, update, or fix your code... (Enter to send)'
+                                : 'Ask me anything about coding... (Enter to send)'
                             }
-                            disabled={!selectedProjectId || isLoading}
+                            disabled={isLoading}
                             rows={1}
-                            className="w-full resize-none rounded-xl border bg-background px-4 py-3 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50 min-h-[44px] max-h-[200px]"
+                            className="w-full resize-none rounded-xl border bg-background px-3 py-2.5 sm:px-4 sm:py-3 pr-10 sm:pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50 min-h-[44px] max-h-[200px]"
                             style={{ height: 'auto' }}
                             onInput={(e) => {
                               const target = e.target as HTMLTextAreaElement;
@@ -1209,7 +1572,7 @@ export default function Home() {
                         </div>
                         <Button
                           size="icon"
-                          className="h-11 w-11 rounded-xl flex-shrink-0"
+                          className="h-10 w-10 sm:h-11 sm:w-11 rounded-xl flex-shrink-0"
                           onClick={handleSendMessage}
                           disabled={!inputMessage.trim() || isLoading}
                         >
@@ -1220,10 +1583,12 @@ export default function Home() {
                           )}
                         </Button>
                       </div>
-                      <p className="text-[10px] text-muted-foreground mt-1.5 text-center">
-                        {projectFiles.length > 0
+                      <p className="text-[9px] sm:text-[10px] text-muted-foreground mt-1.5 text-center">
+                        {selectedProjectId && projectFiles.length > 0
                           ? `AI has full knowledge of your ${projectFiles.length} project files. Ask for complete, copy-paste ready code.`
-                          : 'Upload code files to your project for context-aware AI assistance.'}
+                          : selectedProjectId
+                          ? 'Upload code files to your project for context-aware AI assistance.'
+                          : 'Powered by GLM — Generate complete, production-ready code with no errors.'}
                       </p>
                     </div>
                   </div>
@@ -1231,8 +1596,8 @@ export default function Home() {
               )}
             </div>
 
-            {/* ========== FILE VIEWER PANEL ========== */}
-            {fileViewerOpen && viewingFile && (
+            {/* ========== FILE VIEWER PANEL (desktop only, mobile uses modal) ========== */}
+            {fileViewerOpen && viewingFile && !isMobile && (
               <div className="w-[45%] border-l flex flex-col bg-card min-w-0">
                 <div className="h-12 border-b flex items-center gap-2 px-4 flex-shrink-0">
                   <FileText className="h-4 w-4 text-emerald-500" />
@@ -1280,6 +1645,49 @@ export default function Home() {
             )}
           </div>
         </div>
+
+        {/* ========== MOBILE FILE VIEWER MODAL ========== */}
+        {isMobile && fileViewerOpen && viewingFile && (
+          <Dialog open={fileViewerOpen} onOpenChange={(open) => {
+            if (!open) {
+              setFileViewerOpen(false);
+              setViewingFile(null);
+              setSelectedFileId(null);
+            }
+          }}>
+            <DialogContent className="max-w-[95vw] max-h-[85vh] p-0 gap-0">
+              <DialogHeader className="p-3 border-b flex flex-row items-center gap-2 space-y-0">
+                <DialogTitle className="text-sm font-medium truncate flex-1">
+                  {viewingFile.filePath}
+                </DialogTitle>
+                <Badge variant="secondary" className="text-[10px]">
+                  {viewingFile.language}
+                </Badge>
+                <Badge variant="outline" className="text-[10px]">
+                  v{viewingFile.version}
+                </Badge>
+                <CopyButton text={viewingFile.content} />
+              </DialogHeader>
+              <ScrollArea className="h-[70vh]">
+                <SyntaxHighlighter
+                  style={oneDark}
+                  language={getLanguage(viewingFile.language)}
+                  PreTag="div"
+                  customStyle={{
+                    margin: 0,
+                    borderRadius: 0,
+                    fontSize: '0.75rem',
+                    lineHeight: '1.5',
+                    minHeight: '100%',
+                  }}
+                  showLineNumbers
+                >
+                  {viewingFile.content}
+                </SyntaxHighlighter>
+              </ScrollArea>
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
     </TooltipProvider>
   );

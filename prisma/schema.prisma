@@ -37,12 +37,13 @@ model CodeFile {
 }
 
 model Conversation {
-  id        String    @id @default(cuid())
-  projectId String
-  title     String    @default("New Chat")
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id        String     @id @default(cuid())
+  projectId String?
+  title     String     @default("New Chat")
+  mode      String     @default("project") // "direct" or "project"
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  project   Project?   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   messages  Message[]
 }
 
