@@ -79,3 +79,32 @@ Stage Summary:
 - Admin: can delete directly, see live users, approve/reject requests, change password
 - All features mobile responsive
 ---
+---
+Task ID: 1-8
+Agent: Main
+Task: Complete system upgrade - Admin/Employee RBAC, Project Locking, Trishul B.A., Training/LMS, Employee Authentication
+
+Work Log:
+- Updated Prisma schema with Employee, Training, TrainingAssignment models and added isLocked to Project
+- Pushed schema to database with `bun run db:push`
+- Created 14 new API routes:
+  - Employee CRUD: /api/employees, /api/employees/[id], /api/employees/login, /api/employees/reset-password
+  - Training CRUD: /api/trainings, /api/trainings/[id], /api/trainings/generate-quiz, /api/trainings/recommend
+  - Training assignments: /api/trainings/assign, /api/trainings/assignments, /api/trainings/assignments/[id], /api/trainings/employee/[employeeId]
+  - Business Agent: /api/chat/business
+  - Project toggle: /api/projects/[id]/toggle-lock
+- Added buildBusinessAgentPrompt() to lib/llm.ts
+- Completely rewrote page.tsx (1400+ lines) with all new features
+- Fixed all lint errors (missing imports: AlertDialogTrigger, Menu, Lightbulb)
+- Tested all API endpoints: employee creation, login, training CRUD, assignment, toggle-lock, business chat
+- All lint checks pass, dev server running clean
+
+Stage Summary:
+- Employee login now requires ID + Password (deprecates name-only login)
+- Admin Dashboard with Users, Trainings, Assignments tabs
+- Trishul B.A. Business Agent (admin-only chat mode)
+- Training & Examination System (LMS) with AI quiz generation, timed tests
+- Project lock toggle for admin (hide from employees)
+- Session locking for employee chats maintained
+- Delete request workflow maintained
+- All features mobile responsive

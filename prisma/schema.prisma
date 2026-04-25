@@ -15,6 +15,7 @@ model Project {
   name        String
   description String     @default("")
   techStack   String     @default("")
+  isLocked    Boolean    @default(false) // Admin toggle: when true, hidden from employees
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
   files       CodeFile[]
@@ -25,7 +26,7 @@ model Project {
 model ProjectLock {
   id        String   @id @default(cuid())
   projectId String   @unique
-  lockedBy  String   // Employee name
+  lockedBy  String   // Employee name or "admin"
   lockedAt  DateTime @default(now())
   project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
 }
@@ -51,6 +52,17 @@ model Admin {
   updatedAt DateTime @updatedAt
 }
 
+model Employee {
+  id           String   @id @default(cuid())
+  employeeId   String   @unique // Unique login ID (e.g., "EMP001")
+  name         String
+  password     String   // bcrypt hashed
+  createdBy    String   @default("admin")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  assignments  TrainingAssignment[]
+}
+
 model CodeFile {
   id        String   @id @default(cuid())
   projectId String
@@ -70,7 +82,7 @@ model Conversation {
   id        String     @id @default(cuid())
   projectId String?
   title     String     @default("New Chat")
-  mode      String     @default("project") // "direct" or "project"
+  mode      String     @default("project") // "direct", "project", "business"
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
   project   Project?   @relation(fields: [projectId], references: [id], onDelete: Cascade)
@@ -84,4 +96,35 @@ model Message {
   content        String
   createdAt      DateTime     @default(now())
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+}
+
+model Training {
+  id          String   @id @default(cuid())
+  title       String
+  category    String
+  difficulty  String   @default("beginner") // beginner, intermediate, advanced
+  videoUrl    String   @default("") // YouTube embed URL
+  description String   @default("")
+  questions   String   @default("[]") // JSON array of quiz questions
+  createdBy   String   @default("admin")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  assignments TrainingAssignment[]
+}
+
+model TrainingAssignment {
+  id          String   @id @default(cuid())
+  trainingId  String
+  employeeId  String
+  status      String   @default("due") // due, in_progress, finished
+  score       Int?
+  answers     String   @default("{}") // JSON object of answers
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  training    Training @relation(fields: [trainingId], references: [id], onDelete: Cascade)
+  employee    Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([trainingId, employeeId])
 }
