@@ -32,7 +32,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const validTypes = ['project', 'conversation', 'directChat', 'file'];
+    const validTypes = ['project', 'conversation', 'directChat', 'businessChat', 'file'];
     if (!validTypes.includes(type)) {
       return NextResponse.json(
         { error: `Invalid type. Must be one of: ${validTypes.join(', ')}` },

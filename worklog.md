@@ -307,3 +307,37 @@ Stage Summary:
 - Admin approve retake now works — sends proper JSON body with Content-Type header
 - Direct chat typing is now smooth — input uses memoized component with local state
 - All lint checks pass, dev server running clean
+
+---
+Task ID: bugfix-round-5
+Agent: Main
+Task: Fix OTP email delay and restore/improve delete system (admin direct delete, employee request with admin approval)
+
+Work Log:
+- FIX 1: OTP email delay
+  - Root cause: API waited synchronously for SMTP email to be sent before responding, causing 5-10+ second delay
+  - Changed to fire-and-forget approach: check SMTP config first, if configured, respond immediately with "OTP sent to email", send email in background
+  - If SMTP not configured, show OTP on screen immediately
+  - OTP is never shown on screen when SMTP is configured (security improvement)
+
+- FIX 2: Delete system improvements
+  - Fixed PATCH/PUT mismatch: Delete Requests dialog used PATCH with {status:'approved'} but API only had PUT handler expecting {action:'approve'}
+  - Added PATCH handler to /api/delete-requests/[id] that supports both formats and delegates to PUT
+  - Added 'businessChat' as valid delete type in both API routes
+  - Updated handleDeleteDirectChat to search in both directChats and businessChats for employee delete requests
+  - Fixed employee BA chat delete: now correctly sets type to 'businessChat' instead of 'directChat'
+  - Fixed admin BA chat delete: now clears selectedBusinessChatId and refreshes businessChats
+  - Updated handleApproveDeleteRequest to also fetch businessChats after approval
+  - Made all delete buttons visible (opacity-40 instead of opacity-0) so users can find them
+  - Added "Delete Requests" tab to Admin Dashboard with proper Approve & Delete / Reject buttons
+  - Made Overview "Pending Requests" card clickable to navigate to delete-requests tab
+  - Fixed all delete request dialogs to use PUT with {action:'approve'/'reject'} format
+  - All delete request approval buttons now show proper error messages if API fails
+
+Stage Summary:
+- OTP API now responds instantly; email sent in background
+- Delete system fully functional: Admin can delete directly (chats, projects, BA chats), employees request deletion with reason, admin reviews and approves
+- Delete buttons now visible (not hidden) on all sidebar items
+- Delete Requests tab added to admin dashboard with badge count
+- No database schema changes required - existing data preserved
+- All lint checks pass, dev server running clean

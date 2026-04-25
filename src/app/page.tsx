@@ -756,8 +756,13 @@ export default function Home() {
   };
 
   const handleDeleteDirectChat = async (id:string) => {
-    if(userRole==='employee'){const c=directChats.find(x=>x.id===id);setDeleteReasonDialog({open:true,type:'directChat',targetId:id,targetName:c?.title||'Chat'});return;}
-    try{const r=await fetch(`/api/conversations/${id}`,{method:'DELETE'});if(!r.ok)throw new Error();if(selectedDirectChatId===id){setSelectedDirectChatId(null);setMessages([]);}fetchDirectChats();toast({title:'Chat deleted'});}catch{toast({title:'Error',description:'Failed',variant:'destructive'});}
+    if(userRole==='employee'){
+      const c=directChats.find(x=>x.id===id)||businessChats.find(x=>x.id===id);
+      const chatMode=c?.mode==='business'?'businessChat':'directChat';
+      setDeleteReasonDialog({open:true,type:chatMode,targetId:id,targetName:c?.title||'Chat'});
+      return;
+    }
+    try{const r=await fetch(`/api/conversations/${id}`,{method:'DELETE'});if(!r.ok)throw new Error();if(selectedDirectChatId===id){setSelectedDirectChatId(null);setMessages([]);}if(selectedBusinessChatId===id){setSelectedBusinessChatId(null);setMessages([]);}fetchDirectChats();fetchBusinessChats();toast({title:'Chat deleted'});}catch{toast({title:'Error',description:'Failed',variant:'destructive'});}
   };
 
   const handleSubmitDeleteRequest = async () => {
@@ -767,8 +772,8 @@ export default function Home() {
 
   const handleApproveDeleteRequest = async (id:string) => {
     try{const r=await fetch(`/api/delete-requests/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'approve',reviewedBy:'admin'})});
-      if(r.ok){toast({title:'Approved'});fetchDeleteRequests();fetchProjects();fetchDirectChats();fetchProjectLocks();if(selectedProjectId)fetchProjectDetails();}
-      else toast({title:'Error',description:'Failed',variant:'destructive'});
+      if(r.ok){toast({title:'Approved & Deleted'});fetchDeleteRequests();fetchProjects();fetchDirectChats();fetchBusinessChats();fetchProjectLocks();if(selectedProjectId)fetchProjectDetails();}
+      else{const d=await r.json().catch(()=>({}));toast({title:'Error',description:d.error||'Failed',variant:'destructive'});}
     }catch{toast({title:'Error',description:'Failed',variant:'destructive'});}
   };
 
@@ -1315,6 +1320,7 @@ export default function Home() {
             <TabsTrigger value="users" className="text-xs gap-1"><Users className="h-3 w-3"/>Users</TabsTrigger>
             <TabsTrigger value="trainings" className="text-xs gap-1"><GraduationCap className="h-3 w-3"/>Trainings</TabsTrigger>
             <TabsTrigger value="assignments" className="text-xs gap-1 relative"><ClipboardList className="h-3 w-3"/>Assignments{retakeRequestedCount>0&&<Badge variant="destructive" className="h-4 min-w-4 px-1 text-[8px] ml-1">{retakeRequestedCount}</Badge>}</TabsTrigger>
+            <TabsTrigger value="delete-requests" className="text-xs gap-1 relative"><Trash2 className="h-3 w-3"/>Delete Requests{deleteRequests.length>0&&<Badge variant="destructive" className="h-4 min-w-4 px-1 text-[8px] ml-1">{deleteRequests.length}</Badge>}</TabsTrigger>
             <TabsTrigger value="audit" className="text-xs gap-1"><Eye className="h-3 w-3"/>Audit Log</TabsTrigger>
             <TabsTrigger value="settings" className="text-xs gap-1"><Settings className="h-3 w-3"/>Settings</TabsTrigger>
           </TabsList></div>
@@ -1324,7 +1330,7 @@ export default function Home() {
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
                 <Card><CardContent className="p-4 text-center"><Users className="h-6 w-6 mx-auto mb-2 text-primary"/><p className="text-2xl font-bold">{employees.length}</p><p className="text-xs text-muted-foreground">Employees</p></CardContent></Card>
                 <Card><CardContent className="p-4 text-center"><GraduationCap className="h-6 w-6 mx-auto mb-2 text-primary"/><p className="text-2xl font-bold">{trainings.length}</p><p className="text-xs text-muted-foreground">Trainings</p></CardContent></Card>
-                <Card><CardContent className="p-4 text-center"><ClipboardList className="h-6 w-6 mx-auto mb-2 text-primary"/><p className="text-2xl font-bold">{deleteRequests.length}</p><p className="text-xs text-muted-foreground">Pending Requests</p></CardContent></Card>
+                <Card className="cursor-pointer hover:border-primary/50 transition-colors" onClick={()=>setAdminTab('delete-requests')}><CardContent className="p-4 text-center"><ClipboardList className="h-6 w-6 mx-auto mb-2 text-primary"/><p className="text-2xl font-bold">{deleteRequests.length}</p><p className="text-xs text-muted-foreground">Pending Requests</p></CardContent></Card>
                 <Card><CardContent className="p-4 text-center"><Award className="h-6 w-6 mx-auto mb-2 text-primary"/><p className="text-2xl font-bold">{allAssignments.filter(a=>a.status==='finished').length}</p><p className="text-xs text-muted-foreground">Completed</p></CardContent></Card>
               </div>
               <h3 className="font-semibold mb-3">Recent Activity</h3>
@@ -1416,6 +1422,34 @@ export default function Home() {
                   {log.oldValue&&<span className="text-muted-foreground">"{log.oldValue}" → "{log.newValue}"</span>}
                   <span className="text-muted-foreground flex-shrink-0">by {log.performedBy}</span>
                   <span className="text-muted-foreground flex-shrink-0 w-36 text-right">{new Date(log.createdAt).toLocaleString()}</span>
+                </div>
+              ))}</div>}
+            </TabsContent>
+
+            {/* DELETE REQUESTS TAB */}
+            <TabsContent value="delete-requests" className="mt-0 max-w-3xl mx-auto">
+              <h3 className="font-semibold mb-4 flex items-center gap-2"><Trash2 className="h-5 w-5"/>Delete Requests</h3>
+              {deleteRequests.length===0?<p className="text-muted-foreground text-center py-8">No pending delete requests</p>:
+              <div className="space-y-3">{deleteRequests.map(req=>(
+                <div key={req.id} className="p-4 rounded-lg border space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium">{req.targetName}</span>
+                    <Badge variant="outline" className="text-[10px]">{req.type}</Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground">Requested by: <span className="font-medium">{req.requestedBy}</span></p>
+                  {req.reason&&<p className="text-sm text-muted-foreground bg-muted p-2 rounded">"{req.reason}"</p>}
+                  <div className="flex gap-2">
+                    <Button size="sm" className="gap-1" onClick={async()=>{
+                      const r=await fetch(`/api/delete-requests/${req.id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'approve',reviewedBy:'admin'})});
+                      if(r.ok){toast({title:'Approved & Deleted'});fetchDeleteRequests();fetchProjects();fetchDirectChats();fetchBusinessChats();fetchProjectLocks();}
+                      else{const d=await r.json().catch(()=>({}));toast({title:'Error',description:d.error||'Failed',variant:'destructive'});}
+                    }}><CheckCircle2 className="h-3 w-3"/>Approve & Delete</Button>
+                    <Button size="sm" variant="outline" className="gap-1 text-destructive" onClick={async()=>{
+                      const r=await fetch(`/api/delete-requests/${req.id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'reject',reviewedBy:'admin'})});
+                      if(r.ok){toast({title:'Rejected'});fetchDeleteRequests();}
+                      else toast({title:'Error',variant:'destructive'});
+                    }}><XCircle className="h-3 w-3"/>Reject</Button>
+                  </div>
                 </div>
               ))}</div>}
             </TabsContent>
@@ -1629,8 +1663,8 @@ export default function Home() {
                 <div className="flex items-center justify-between"><span className="font-medium text-sm">{req.targetName}</span><Badge variant="outline" className="text-[9px]">{req.type}</Badge></div>
                 <p className="text-xs text-muted-foreground">By: {req.requestedBy} • Reason: {req.reason}</p>
                 <div className="flex gap-2">
-                  <Button size="sm" variant="outline" className="text-xs gap-1" onClick={async()=>{await fetch(`/api/delete-requests/${req.id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'approved',reviewedBy:'admin'})});fetchDeleteRequests();fetchProjects();fetchDirectChats();fetchBusinessChats();toast({title:'Approved'});}}><CheckCircle2 className="h-3 w-3"/>Approve</Button>
-                  <Button size="sm" variant="outline" className="text-xs gap-1 text-destructive" onClick={async()=>{await fetch(`/api/delete-requests/${req.id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'rejected',reviewedBy:'admin'})});fetchDeleteRequests();toast({title:'Rejected'});}}><XCircle className="h-3 w-3"/>Reject</Button>
+                  <Button size="sm" variant="outline" className="text-xs gap-1" onClick={async()=>{const r=await fetch(`/api/delete-requests/${req.id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'approve',reviewedBy:'admin'})});if(r.ok){fetchDeleteRequests();fetchProjects();fetchDirectChats();fetchBusinessChats();fetchProjectLocks();toast({title:'Approved & Deleted'});}else toast({title:'Error',variant:'destructive'});}}><CheckCircle2 className="h-3 w-3"/>Approve</Button>
+                  <Button size="sm" variant="outline" className="text-xs gap-1 text-destructive" onClick={async()=>{const r=await fetch(`/api/delete-requests/${req.id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'reject',reviewedBy:'admin'})});if(r.ok){fetchDeleteRequests();toast({title:'Rejected'});}else toast({title:'Error',variant:'destructive'});}}><XCircle className="h-3 w-3"/>Reject</Button>
                 </div>
               </div>
             ))}
@@ -1735,10 +1769,10 @@ export default function Home() {
                   {isAdmin&&<Button variant="ghost" size="icon" className={`h-5 w-5 opacity-0 group-hover:opacity-100 ${c.isHidden?'text-red-500':'text-muted-foreground'}`} onClick={e=>{e.stopPropagation();handleToggleChatHide(c.id);}} title={c.isHidden?'Unhide':'Hide'}><EyeOff className="h-2.5 w-2.5"/></Button>}
                   <Button variant="ghost" size="icon" className="h-5 w-5 opacity-0 group-hover:opacity-100" onClick={e=>{e.stopPropagation();handleStartRename(c.id,'chat',c.title);}}><Pencil className="h-2.5 w-2.5"/></Button>
                   {isAdmin?(
-                    <AlertDialog><AlertDialogTrigger asChild><Button variant="ghost" size="icon" className="h-5 w-5 opacity-0 group-hover:opacity-100 text-destructive hover:text-destructive" onClick={e=>e.stopPropagation()}><Trash2 className="h-2.5 w-2.5"/></Button></AlertDialogTrigger>
+                    <AlertDialog><AlertDialogTrigger asChild><Button variant="ghost" size="icon" className="h-5 w-5 opacity-40 group-hover:opacity-100 text-destructive hover:text-destructive" onClick={e=>e.stopPropagation()}><Trash2 className="h-2.5 w-2.5"/></Button></AlertDialogTrigger>
                     <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Delete Business Chat?</AlertDialogTitle><AlertDialogDescription>Delete &quot;{c.title}&quot;? This cannot be undone.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={()=>handleDeleteDirectChat(c.id)}>Delete</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
                   ):(
-                    <Button variant="ghost" size="icon" className="h-5 w-5 opacity-0 group-hover:opacity-100" onClick={e=>{e.stopPropagation();handleDeleteDirectChat(c.id);}}><Trash2 className="h-2.5 w-2.5 text-destructive"/></Button>
+                    <Button variant="ghost" size="icon" className="h-5 w-5 opacity-40 group-hover:opacity-100" onClick={e=>{e.stopPropagation();handleDeleteDirectChat(c.id);}}><Trash2 className="h-2.5 w-2.5 text-destructive"/></Button>
                   )}
                 </div>
               ))}
@@ -1770,10 +1804,10 @@ export default function Home() {
                   {isAdmin&&<Button variant="ghost" size="icon" className={`h-5 w-5 opacity-0 group-hover:opacity-100 ${c.isHidden?'text-red-500':'text-muted-foreground'}`} onClick={e=>{e.stopPropagation();handleToggleChatHide(c.id);}} title={c.isHidden?'Unhide':'Hide'}><EyeOff className="h-2.5 w-2.5"/></Button>}
                   <Button variant="ghost" size="icon" className="h-5 w-5 opacity-0 group-hover:opacity-100" onClick={e=>{e.stopPropagation();handleStartRename(c.id,'chat',c.title);}}><Pencil className="h-2.5 w-2.5"/></Button>
                   {isAdmin?(
-                    <AlertDialog><AlertDialogTrigger asChild><Button variant="ghost" size="icon" className="h-5 w-5 opacity-0 group-hover:opacity-100 text-destructive hover:text-destructive" onClick={e=>e.stopPropagation()}><Trash2 className="h-2.5 w-2.5"/></Button></AlertDialogTrigger>
+                    <AlertDialog><AlertDialogTrigger asChild><Button variant="ghost" size="icon" className="h-5 w-5 opacity-40 group-hover:opacity-100 text-destructive hover:text-destructive" onClick={e=>e.stopPropagation()}><Trash2 className="h-2.5 w-2.5"/></Button></AlertDialogTrigger>
                     <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Delete Direct Chat?</AlertDialogTitle><AlertDialogDescription>Delete &quot;{c.title}&quot;? This cannot be undone.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={()=>handleDeleteDirectChat(c.id)}>Delete</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
                   ):(
-                    <Button variant="ghost" size="icon" className="h-5 w-5 opacity-0 group-hover:opacity-100" onClick={e=>{e.stopPropagation();handleDeleteDirectChat(c.id);}}><Trash2 className="h-2.5 w-2.5 text-destructive"/></Button>
+                    <Button variant="ghost" size="icon" className="h-5 w-5 opacity-40 group-hover:opacity-100" onClick={e=>{e.stopPropagation();handleDeleteDirectChat(c.id);}}><Trash2 className="h-2.5 w-2.5 text-destructive"/></Button>
                   )}
                 </div>
               );})}
@@ -1815,11 +1849,11 @@ export default function Home() {
                   {project.isLocked && isAdmin && <Badge variant="outline" className="h-4 px-1 text-[8px] border-red-500/50 text-red-500 bg-red-500/10">Hidden</Badge>}
                   {/* Delete */}
                   {isAdmin?(
-                    <AlertDialog><AlertDialogTrigger asChild><Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e=>e.stopPropagation()}><Trash2 className="h-3 w-3 text-destructive"/></Button></AlertDialogTrigger>
+                    <AlertDialog><AlertDialogTrigger asChild><Button variant="ghost" size="icon" className="h-6 w-6 opacity-40 group-hover:opacity-100 transition-opacity" onClick={e=>e.stopPropagation()}><Trash2 className="h-3 w-3 text-destructive"/></Button></AlertDialogTrigger>
                     <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Delete Project?</AlertDialogTitle><AlertDialogDescription>Delete &quot;{project.name}&quot; and all its data.</AlertDialogDescription></AlertDialogHeader>
                     <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={()=>handleDeleteProject(project.id)}>Delete</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
                   ):(
-                    <Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e=>{e.stopPropagation();handleDeleteProject(project.id);}}><Trash2 className="h-3 w-3 text-destructive"/></Button>
+                    <Button variant="ghost" size="icon" className="h-6 w-6 opacity-40 group-hover:opacity-100 transition-opacity" onClick={e=>{e.stopPropagation();handleDeleteProject(project.id);}}><Trash2 className="h-3 w-3 text-destructive"/></Button>
                   )}
                 </div>
                 {expandedProjects.has(project.id)&&selectedProjectId===project.id&&(
@@ -1829,10 +1863,10 @@ export default function Home() {
                         onClick={()=>{setSelectedConversationId(conv.id);if(isMobile)setMobileSheetOpen(false);}}>
                         <MessageSquare className="h-3 w-3 flex-shrink-0"/><span className="truncate flex-1">{conv.title}</span>
                         {isAdmin?(
-                          <AlertDialog><AlertDialogTrigger asChild><Button variant="ghost" size="icon" className="h-5 w-5 opacity-0 group-hover:opacity-100 text-destructive hover:text-destructive" onClick={e=>e.stopPropagation()}><Trash2 className="h-2.5 w-2.5"/></Button></AlertDialogTrigger>
+                          <AlertDialog><AlertDialogTrigger asChild><Button variant="ghost" size="icon" className="h-5 w-5 opacity-40 group-hover:opacity-100 text-destructive hover:text-destructive" onClick={e=>e.stopPropagation()}><Trash2 className="h-2.5 w-2.5"/></Button></AlertDialogTrigger>
                           <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Delete Chat?</AlertDialogTitle><AlertDialogDescription>Delete &quot;{conv.title}&quot;? This cannot be undone.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={()=>handleDeleteConversation(conv.id)}>Delete</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
                         ):(
-                          <Button variant="ghost" size="icon" className="h-5 w-5 opacity-0 group-hover:opacity-100" onClick={e=>{e.stopPropagation();handleDeleteConversation(conv.id);}}><Trash2 className="h-2.5 w-2.5 text-destructive"/></Button>
+                          <Button variant="ghost" size="icon" className="h-5 w-5 opacity-40 group-hover:opacity-100" onClick={e=>{e.stopPropagation();handleDeleteConversation(conv.id);}}><Trash2 className="h-2.5 w-2.5 text-destructive"/></Button>
                         )}
                       </div>
                     ))}

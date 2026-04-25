@@ -1,5 +1,5 @@
 import { db } from '@/lib/db';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
 export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -46,12 +46,9 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
             break;
 
           case 'conversation':
-            // Cascade deletes messages
-            await db.conversation.delete({ where: { id: deleteRequest.targetId } });
-            break;
-
           case 'directChat':
-            // Direct chats are conversations with mode "direct"
+          case 'businessChat':
+            // All chats are conversations - cascade deletes messages
             await db.conversation.delete({ where: { id: deleteRequest.targetId } });
             break;
 
@@ -91,6 +88,39 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
     return NextResponse.json(updatedRequest);
   } catch (error) {
     console.error('Failed to process delete request:', error);
+    return NextResponse.json({ error: 'Failed to process delete request' }, { status: 500 });
+  }
+}
+
+// PATCH handler - supports both action-based and status-based requests
+export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const { id } = await params;
+    const body = await request.json();
+    const { status, reviewedBy, action } = body;
+
+    // Support both {action:'approve'} and {status:'approved'} formats
+    const effectiveAction = action || (status === 'approved' ? 'approve' : status === 'rejected' ? 'reject' : null);
+    const effectiveReviewedBy = reviewedBy || 'admin';
+
+    if (!effectiveAction) {
+      return NextResponse.json(
+        { error: 'Missing required field: action or status' },
+        { status: 400 }
+      );
+    }
+
+    // Delegate to PUT logic
+    return PUT(
+      new Request(request.url, {
+        method: 'PUT',
+        headers: request.headers,
+        body: JSON.stringify({ action: effectiveAction, reviewedBy: effectiveReviewedBy }),
+      }),
+      { params }
+    );
+  } catch (error) {
+    console.error('Failed to process delete request (PATCH):', error);
     return NextResponse.json({ error: 'Failed to process delete request' }, { status: 500 });
   }
 }

@@ -88,9 +88,9 @@ export async function POST(request: Request) {
       expiresAt: Date.now() + 10 * 60 * 1000,
     });
 
-    // Try to send OTP via email
-    const emailSent = await sendOtpEmail(admin.email, otp);
-
+    // Try to send OTP via email (async - don't wait for it)
+    const emailSentPromise = sendOtpEmail(admin.email, otp);
+    
     // Create audit log
     await db.auditLog.create({
       data: {
@@ -98,20 +98,38 @@ export async function POST(request: Request) {
         targetType: 'employee',
         targetId: admin.id,
         targetName: admin.email,
-        newValue: emailSent ? 'OTP sent via email' : 'OTP generated (SMTP not configured)',
+        newValue: 'OTP requested',
         performedBy: 'system',
       },
     });
 
-    return NextResponse.json({
-      success: true,
-      message: emailSent
-        ? 'OTP sent to your email address'
-        : 'OTP generated. Please configure SMTP settings in Admin Settings to receive OTP via email.',
-      otp: emailSent ? undefined : otp, // Only show OTP on screen if email wasn't sent
-      adminId: admin.id,
-      emailSent,
-    });
+    // Check SMTP configuration to determine response
+    const transporter = await getEmailTransporter();
+    const hasSmtp = !!transporter;
+
+    if (hasSmtp) {
+      // Fire and forget - send email in background, respond immediately
+      emailSentPromise.catch(err => {
+        console.error('Background email send failed:', err);
+      });
+      
+      return NextResponse.json({
+        success: true,
+        message: 'OTP sent to your email address. Please check your inbox.',
+        otp: undefined, // Never show OTP on screen when SMTP is configured
+        adminId: admin.id,
+        emailSent: true,
+      });
+    } else {
+      // SMTP not configured - show OTP on screen
+      return NextResponse.json({
+        success: true,
+        message: 'SMTP not configured. OTP shown on screen.',
+        otp: otp,
+        adminId: admin.id,
+        emailSent: false,
+      });
+    }
   } catch (error) {
     console.error('Request password reset error:', error);
     return NextResponse.json({ error: 'Failed to request password reset' }, { status: 500 });
