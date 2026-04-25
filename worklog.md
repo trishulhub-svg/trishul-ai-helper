@@ -228,3 +228,47 @@ Stage Summary:
 - Trishul B.A. uses dedicated business-only AI prompt (no coding)
 - OTP sent via email when SMTP configured, displayed on screen when not
 - Lint passes, dev server running clean
+---
+Task ID: bugfix-round-3
+Agent: Main
+Task: Fix 4 critical issues: B.A. chat mode switching, employee quiz re-attempt, delete options for admin, OTP email delivery
+
+Work Log:
+- FIX 1: Business AI chat mode switching to Direct Chat
+  - Root cause: `isBusiness` only checked `!!selectedBusinessChatId`, but when starting a NEW business chat, this is null
+  - Changed to `!!selectedBusinessChatId||chatMode==='business'` so it correctly routes to /api/chat/business
+  - Also ensured projectId is set to undefined for business chats (not sent to business endpoint)
+  - Fixed conversation ID assignment after creating new business chat to set selectedBusinessChatId
+- FIX 2: Employee quiz re-attempt and video hiding
+  - Added check in handleStartTraining: if assignment.status==='finished', just show review mode without changing status
+  - Employee can no longer re-take a finished test by clicking on the training card
+  - Video is already hidden in the finished state view (only review mode with correct/wrong answers shown)
+  - Auto-submit after 10 minutes already works in QuizView component (timer at 600 seconds)
+  - Employee must request retake from admin, who can then approve to reset the assignment
+- FIX 3: Delete option for admin on chats/projects
+  - Replaced X buttons with Trash2 icons (more visible) for all chat types
+  - Added AlertDialog confirmation for admin when deleting business chats, direct chats, and project conversations
+  - Employee delete flow preserved: employees see Trash2 icon that triggers delete request dialog
+  - Project delete already had AlertDialog confirmation, kept as-is
+- FIX 4: OTP email sending
+  - Added smtpHost, smtpPort, smtpUser, smtpPass, smtpFrom fields to Admin Prisma model
+  - Created /api/admin/smtp API endpoint (GET for settings, POST for saving, PUT for testing connection)
+  - Updated /api/admin/request-password-reset to read SMTP settings from database instead of environment variables
+  - Added SMTP settings card in admin dashboard Settings tab with:
+    - Host, port, username, password, from email fields
+    - Test Connection button to verify SMTP settings
+    - Admin password required to save
+    - Visual indicator showing SMTP configured/not configured status
+  - Updated password reset dialogs (both dashboard and sidebar) to:
+    - Show green badge when SMTP is configured ("OTP will be sent to your email")
+    - Show amber badge when SMTP is not configured ("OTP shown on screen. Configure in Settings")
+    - Only show OTP on screen when SMTP is NOT configured
+    - When SMTP is configured, show "OTP sent to your email. Check your inbox"
+  - Preserved existing SMTP password when saving (don't overwrite if blank)
+
+Stage Summary:
+- B.A. chat mode now stays as BUSINESS when creating new chats (was switching to Direct)
+- Employee cannot re-take finished tests; video hidden after completion; review mode with correct/wrong indicators
+- Admin has visible Trash2 delete buttons with AlertDialog confirmation on all chat types
+- SMTP settings configurable from admin dashboard; OTP sent via email when configured; shown on screen only as fallback
+- All lint checks pass, dev server running clean

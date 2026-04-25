@@ -1,40 +1,39 @@
-import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { NextResponse } from 'next/server';
 import nodemailer from 'nodemailer';
 
 // Module-level Map for storing OTPs (in-memory, resets on server restart)
 const otpStore = new Map<string, { otp: string; expiresAt: number }>();
 
-// Email transporter - configured via environment variables
-function getEmailTransporter() {
-  const host = process.env.SMTP_HOST;
-  const port = process.env.SMTP_PORT;
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASS;
-
-  if (!host || !user || !pass) {
-    return null; // Email not configured
+// Email transporter - configured from database SMTP settings
+async function getEmailTransporter() {
+  const admin = await db.admin.findFirst();
+  if (!admin || !admin.smtpHost || !admin.smtpUser || !admin.smtpPass) {
+    return null; // SMTP not configured in database
   }
 
   return nodemailer.createTransport({
-    host,
-    port: port ? parseInt(port) : 587,
-    secure: parseInt(port || '587') === 465,
-    auth: { user, pass },
+    host: admin.smtpHost,
+    port: admin.smtpPort ? parseInt(admin.smtpPort) : 587,
+    secure: admin.smtpPort === '465',
+    auth: { user: admin.smtpUser, pass: admin.smtpPass },
   });
 }
 
 async function sendOtpEmail(email: string, otp: string): Promise<boolean> {
-  const transporter = getEmailTransporter();
+  const transporter = await getEmailTransporter();
 
   if (!transporter) {
-    console.log('SMTP not configured. OTP for', email, ':', otp);
-    return false; // Email not sent (will show OTP on screen instead)
+    console.log('SMTP not configured in database. OTP for', email, ':', otp);
+    return false; // Email not sent
   }
+
+  const admin = await db.admin.findFirst();
+  const fromEmail = admin?.smtpFrom || admin?.smtpUser || 'noreply@trishul.ai';
 
   try {
     await transporter.sendMail({
-      from: `"Trishul AI Helper" <${process.env.SMTP_USER}>`,
+      from: `"Trishul AI Helper" <${fromEmail}>`,
       to: email,
       subject: 'Password Reset OTP - Trishul AI Helper',
       html: `
@@ -99,7 +98,7 @@ export async function POST(request: Request) {
         targetType: 'employee',
         targetId: admin.id,
         targetName: admin.email,
-        newValue: emailSent ? 'OTP sent via email' : 'OTP generated (email not configured)',
+        newValue: emailSent ? 'OTP sent via email' : 'OTP generated (SMTP not configured)',
         performedBy: 'system',
       },
     });
@@ -108,7 +107,7 @@ export async function POST(request: Request) {
       success: true,
       message: emailSent
         ? 'OTP sent to your email address'
-        : 'OTP generated (email not configured, showing on screen)',
+        : 'OTP generated. Please configure SMTP settings in Admin Settings to receive OTP via email.',
       otp: emailSent ? undefined : otp, // Only show OTP on screen if email wasn't sent
       adminId: admin.id,
       emailSent,

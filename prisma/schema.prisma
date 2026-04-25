@@ -45,11 +45,16 @@ model DeleteRequest {
 }
 
 model Admin {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  password  String   // bcrypt hashed
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         String   @id @default(cuid())
+  email      String   @unique
+  password   String   // bcrypt hashed
+  smtpHost   String   @default("")
+  smtpPort   String   @default("587")
+  smtpUser   String   @default("")
+  smtpPass   String   @default("")
+  smtpFrom   String   @default("")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 }
 
 model Employee {

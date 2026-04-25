@@ -412,6 +412,17 @@ export default function Home() {
   const [adminEmailPassword, setAdminEmailPassword] = useState('');
   const [newTrainingDueDate, setNewTrainingDueDate] = useState('');
 
+  // SMTP Settings
+  const [smtpHost, setSmtpHost] = useState('');
+  const [smtpPort, setSmtpPort] = useState('587');
+  const [smtpUser, setSmtpUser] = useState('');
+  const [smtpPass, setSmtpPass] = useState('');
+  const [smtpFrom, setSmtpFrom] = useState('');
+  const [smtpConfigured, setSmtpConfigured] = useState(false);
+  const [smtpPassword, setSmtpPassword] = useState('');
+  const [smtpSaving, setSmtpSaving] = useState(false);
+  const [smtpTesting, setSmtpTesting] = useState(false);
+
   // Dialog
   const [showNewProject, setShowNewProject] = useState(false);
   const [showNewFile, setShowNewFile] = useState(false);
@@ -565,6 +576,10 @@ export default function Home() {
     try{const r=await fetch('/api/audit-logs');if(r.ok){const d=await r.json();setAuditLogs(d.logs||[]);}}catch{}
   }, []);
 
+  const fetchSmtpSettings = useCallback(async () => {
+    try{const r=await fetch('/api/admin/smtp');if(r.ok){const d=await r.json();setSmtpHost(d.smtpHost||'');setSmtpPort(d.smtpPort||'587');setSmtpUser(d.smtpUser||'');setSmtpFrom(d.smtpFrom||'');setSmtpConfigured(d.smtpConfigured||false);}}catch{}
+  }, []);
+
   const fetchEmployees = useCallback(async () => {
     try { const r=await fetch('/api/employees'); if(r.ok) setEmployees(await r.json()); } catch{}
   }, []);
@@ -584,7 +599,7 @@ export default function Home() {
 
   // Initial load
   useEffect(() => { if(userRole){fetchProjects();fetchDirectChats();fetchProjectLocks();if(userRole==='admin')fetchBusinessChats();} }, [fetchProjects,fetchDirectChats,fetchProjectLocks,fetchBusinessChats,userRole]);
-  useEffect(() => { if(userRole==='admin'){fetchDeleteRequests();fetchEmployees();fetchTrainings();fetchAllAssignments();fetchAuditLogs();} }, [fetchDeleteRequests,fetchEmployees,fetchTrainings,fetchAllAssignments,fetchAuditLogs,userRole]);
+  useEffect(() => { if(userRole==='admin'){fetchDeleteRequests();fetchEmployees();fetchTrainings();fetchAllAssignments();fetchAuditLogs();fetchSmtpSettings();} }, [fetchDeleteRequests,fetchEmployees,fetchTrainings,fetchAllAssignments,fetchAuditLogs,fetchSmtpSettings,userRole]);
   useEffect(() => { if(userRole==='employee'&&employeeDbId) fetchEmployeeTrainings(); }, [fetchEmployeeTrainings,userRole,employeeDbId]);
   useEffect(() => { fetchProjectDetails(); }, [fetchProjectDetails]);
   useEffect(() => {
@@ -801,10 +816,10 @@ export default function Home() {
     const tempMsg:Message={id:'temp-'+Date.now(),conversationId:selectedBusinessChatId||selectedDirectChatId||selectedConversationId||'',role:'user',content:userMsg||'📎 Shared file(s)',createdAt:new Date().toISOString(),attachments:currentAttachments};
     setMessages(prev=>[...prev,tempMsg]);
     try{
-      const isBusiness=!!selectedBusinessChatId;
+      const isBusiness=!!selectedBusinessChatId||chatMode==='business';
       const endpoint=isBusiness?'/api/chat/business':'/api/chat';
       const r=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-        projectId:selectedProjectId||undefined,
+        projectId:isBusiness?undefined:(selectedProjectId||undefined),
         conversationId:selectedBusinessChatId||selectedDirectChatId||selectedConversationId||undefined,
         message:userMsg||'Please analyze the attached file(s).',
         attachments:currentAttachments.length>0?currentAttachments:undefined,
@@ -911,7 +926,7 @@ export default function Home() {
   const handleAdminResetVerify = async () => {
     if(!adminResetOtp.trim()||!adminResetNewPass.trim()){toast({title:'Required',description:'Enter OTP and new password',variant:'destructive'});return;}
     try{const r=await fetch('/api/admin/verify-password-reset',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({otp:adminResetOtp.trim(),newPassword:adminResetNewPass.trim(),adminId:adminId})});
-      if(r.ok){toast({title:'Password Reset Successfully'});setShowAdminResetPassword(false);setAdminResetOtp('');setAdminResetNewPass('');setAdminResetStep('request');setGeneratedOtp('');}
+      if(r.ok){toast({title:'Password Reset Successfully'});setShowChangePassword(false);setShowAdminResetPassword(false);setAdminResetOtp('');setAdminResetNewPass('');setAdminResetStep('request');setGeneratedOtp('');}
       else{const d=await r.json();toast({title:'Error',description:d.error||'Invalid OTP',variant:'destructive'});}
     }catch{toast({title:'Error',variant:'destructive'});}
   };
@@ -923,6 +938,26 @@ export default function Home() {
       if(r.ok){const d=await r.json();toast({title:'Email Updated'});setShowUpdateEmail(false);setAdminNewEmail('');setAdminEmailPassword('');if(d.email){setAdminEmail(d.email);localStorage.setItem('trishul_admin_email',d.email);}}
       else{const d=await r.json();toast({title:'Error',description:d.error||'Failed',variant:'destructive'});}
     }catch{toast({title:'Error',variant:'destructive'});}
+  };
+
+  // ============ SMTP SETTINGS ============
+  const handleSaveSmtp = async () => {
+    if(!smtpPassword.trim()){toast({title:'Required',description:'Enter your current admin password to save SMTP settings',variant:'destructive'});return;}
+    setSmtpSaving(true);
+    try{const r=await fetch('/api/admin/smtp',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({smtpHost:smtpHost.trim(),smtpPort:smtpPort.trim(),smtpUser:smtpUser.trim(),smtpPass:smtpPass.trim(),smtpFrom:smtpFrom.trim(),currentPassword:smtpPassword.trim()})});
+      if(r.ok){toast({title:'SMTP Settings Saved',description:'Email OTP will now be sent to your inbox'});setSmtpPass('');setSmtpPassword('');fetchSmtpSettings();}
+      else{const d=await r.json();toast({title:'Error',description:d.error||'Failed',variant:'destructive'});}
+    }catch{toast({title:'Error',variant:'destructive'});}
+    setSmtpSaving(false);
+  };
+  const handleTestSmtp = async () => {
+    if(!smtpHost.trim()||!smtpUser.trim()||!smtpPass.trim()){toast({title:'Required',description:'Fill in SMTP host, user, and password to test',variant:'destructive'});return;}
+    setSmtpTesting(true);
+    try{const r=await fetch('/api/admin/smtp',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({smtpHost:smtpHost.trim(),smtpPort:smtpPort.trim(),smtpUser:smtpUser.trim(),smtpPass:smtpPass.trim()})});
+      if(r.ok){toast({title:'SMTP Connection OK',description:'Email sending is working correctly'});}
+      else{const d=await r.json();toast({title:'SMTP Connection Failed',description:d.error||'Failed',variant:'destructive'});}
+    }catch{toast({title:'Error',variant:'destructive'});}
+    setSmtpTesting(false);
   };
 
   // ============ TRAINING RETAKE ============
@@ -1005,6 +1040,10 @@ export default function Home() {
 
   // Employee: Start training
   const handleStartTraining = async (assignment: TrainingAssignment) => {
+    // If already finished, just show review mode - no re-taking allowed
+    if(assignment.status==='finished'){
+      setActiveTraining(assignment);setVideoWatched(false);setQuizMode(false);return;
+    }
     try{const r=await fetch(`/api/trainings/assignments/${assignment.id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'in_progress'})});
       if(r.ok){setActiveTraining({...assignment,status:'in_progress',startedAt:new Date().toISOString()});setVideoWatched(false);setQuizMode(false);fetchEmployeeTrainings();}
       else toast({title:'Error',variant:'destructive'});
@@ -1327,6 +1366,34 @@ export default function Home() {
             <TabsContent value="settings" className="mt-0 max-w-3xl mx-auto">
               <div className="space-y-6">
                 <Card>
+                  <CardHeader><CardTitle className="text-sm flex items-center gap-2"><Mail className="h-4 w-4"/>Email / SMTP Settings</CardTitle></CardHeader>
+                  <CardContent className="space-y-3">
+                    {smtpConfigured ? (
+                      <div className="flex items-center gap-2 p-2 rounded-lg bg-green-500/10 border border-green-500/30">
+                        <CheckCircle2 className="h-4 w-4 text-green-600"/><span className="text-xs text-green-600 font-medium">SMTP is configured — OTP will be sent to your email</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 p-2 rounded-lg bg-amber-500/10 border border-amber-500/30">
+                        <Mail className="h-4 w-4 text-amber-600"/><span className="text-xs text-amber-600 font-medium">SMTP not configured — OTP will be shown on screen instead of email</span>
+                      </div>
+                    )}
+                    <p className="text-xs text-muted-foreground">Configure your email provider SMTP settings to receive OTP codes via email for password reset. Common providers: Gmail (smtp.gmail.com:587), Outlook (smtp.office365.com:587), SendGrid (smtp.sendgrid.net:587).</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div><Label>SMTP Host</Label><Input value={smtpHost} onChange={e=>setSmtpHost(e.target.value)} placeholder="smtp.gmail.com"/></div>
+                      <div><Label>Port</Label><Input value={smtpPort} onChange={e=>setSmtpPort(e.target.value)} placeholder="587"/></div>
+                    </div>
+                    <div><Label>SMTP Username (Email)</Label><Input value={smtpUser} onChange={e=>setSmtpUser(e.target.value)} placeholder="your-email@gmail.com" type="email"/></div>
+                    <div><Label>SMTP Password {smtpConfigured?'(leave blank to keep current)':''}</Label><Input value={smtpPass} onChange={e=>setSmtpPass(e.target.value)} placeholder="App password" type="password"/></div>
+                    <div><Label>From Email (optional)</Label><Input value={smtpFrom} onChange={e=>setSmtpFrom(e.target.value)} placeholder="Defaults to SMTP username"/></div>
+                    <Separator/>
+                    <div><Label>Admin Password (required to save)</Label><Input value={smtpPassword} onChange={e=>setSmtpPassword(e.target.value)} placeholder="Enter your current admin password" type="password"/></div>
+                    <div className="flex gap-2">
+                      <Button onClick={handleSaveSmtp} disabled={smtpSaving||!smtpPassword.trim()} className="flex-1">{smtpSaving?<Loader2 className="h-4 w-4 animate-spin mr-2"/>:null}Save SMTP Settings</Button>
+                      <Button variant="outline" onClick={handleTestSmtp} disabled={smtpTesting||!smtpHost.trim()||!smtpUser.trim()}>{smtpTesting?<Loader2 className="h-4 w-4 animate-spin mr-2"/>:null}Test Connection</Button>
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
                   <CardHeader><CardTitle className="text-sm">Change Password</CardTitle></CardHeader>
                   <CardContent className="space-y-3">
                     <div><Label>Current Password</Label><Input value={currentPassword} onChange={e=>setCurrentPassword(e.target.value)} type="password"/></div>
@@ -1337,13 +1404,25 @@ export default function Home() {
                 <Card>
                   <CardHeader><CardTitle className="text-sm">Reset Password (OTP to Email)</CardTitle></CardHeader>
                   <CardContent className="space-y-3">
+                    {smtpConfigured&&(
+                      <div className="flex items-center gap-2 p-2 rounded-lg bg-green-500/10 border border-green-500/30">
+                        <CheckCircle2 className="h-4 w-4 text-green-600"/><span className="text-xs text-green-600 font-medium">OTP will be sent to {adminEmail}</span>
+                      </div>
+                    )}
+                    {!smtpConfigured&&(
+                      <div className="flex items-center gap-2 p-2 rounded-lg bg-amber-500/10 border border-amber-500/30">
+                        <Mail className="h-4 w-4 text-amber-600"/><span className="text-xs text-amber-600 font-medium">SMTP not configured — OTP will be shown on screen. Configure SMTP in the settings above.</span>
+                      </div>
+                    )}
                     {adminResetStep==='request'?(
-                      <div><p className="text-xs text-muted-foreground mb-2">An OTP will be sent to your admin email. If email is not configured, the OTP will be displayed on screen.</p><Button onClick={handleAdminResetRequest}>Send OTP</Button></div>
+                      <Button onClick={handleAdminResetRequest} disabled={!adminEmail} className="w-full"><Mail className="h-4 w-4 mr-2"/>Send OTP to Email</Button>
                     ):(
                       <div className="space-y-3">
-                        <div><Label>OTP</Label><Input value={adminResetOtp} onChange={e=>setAdminResetOtp(e.target.value)} placeholder="Enter OTP"/></div>
+                        {!smtpConfigured&&generatedOtp&&<div className="flex items-center gap-2 p-2 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800"><span className="text-xs font-medium">OTP:</span><code className="text-sm font-bold text-amber-600 dark:text-amber-400">{generatedOtp}</code><span className="text-xs text-muted-foreground">(shown because SMTP is not configured)</span></div>}
+                        {smtpConfigured&&<p className="text-xs text-muted-foreground">OTP has been sent to {adminEmail}. Check your inbox (and spam folder).</p>}
+                        <div><Label>OTP</Label><Input value={adminResetOtp} onChange={e=>setAdminResetOtp(e.target.value)} placeholder="Enter OTP from email"/></div>
                         <div><Label>New Password</Label><Input value={adminResetNewPass} onChange={e=>setAdminResetNewPass(e.target.value)} type="password"/></div>
-                        <Button onClick={handleAdminResetVerify} disabled={!adminResetOtp.trim()||!adminResetNewPass.trim()}>Verify & Reset</Button>
+                        <Button onClick={handleAdminResetVerify} disabled={!adminResetOtp.trim()||!adminResetNewPass.trim()} className="w-full">Verify & Reset</Button>
                       </div>
                     )}
                   </CardContent>
@@ -1456,15 +1535,24 @@ export default function Home() {
               <div className="space-y-3">
                 {adminEmail&&<div className="flex items-center gap-2 p-2 rounded-lg bg-muted/50"><Mail className="h-4 w-4 text-primary flex-shrink-0"/><span className="text-sm font-medium truncate">{adminEmail}</span></div>}
                 {!adminEmail&&<p className="text-xs text-destructive">Admin email not found. Please log in again.</p>}
+                {smtpConfigured?(
+                  <div className="flex items-center gap-2 p-2 rounded-lg bg-green-500/10 border border-green-500/30">
+                    <CheckCircle2 className="h-4 w-4 text-green-600"/><span className="text-xs text-green-600 font-medium">OTP will be sent to your email</span>
+                  </div>
+                ):(
+                  <div className="flex items-center gap-2 p-2 rounded-lg bg-amber-500/10 border border-amber-500/30">
+                    <Mail className="h-4 w-4 text-amber-600"/><span className="text-xs text-amber-600 font-medium">SMTP not configured — OTP shown on screen. Configure in Dashboard → Settings.</span>
+                  </div>
+                )}
                 {adminResetStep==='request'?(
                   <div className="space-y-2">
-                    <p className="text-xs text-muted-foreground">An OTP will be sent to your admin email. If email is not configured, the OTP will be displayed on screen.</p>
                     <Button onClick={handleAdminResetRequest} disabled={!adminEmail} className="w-full"><Mail className="h-4 w-4 mr-2"/>Send OTP to Email</Button>
                   </div>
                 ):(
                   <div className="space-y-2">
-                    {generatedOtp&&<div className="flex items-center gap-2 p-2 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800"><span className="text-xs font-medium">Your OTP:</span><code className="text-sm font-bold text-amber-600 dark:text-amber-400">{generatedOtp}</code></div>}
-                    <div><Label>OTP</Label><Input value={adminResetOtp} onChange={e=>setAdminResetOtp(e.target.value)} placeholder="Enter OTP"/></div>
+                    {!smtpConfigured&&generatedOtp&&<div className="flex items-center gap-2 p-2 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800"><span className="text-xs font-medium">OTP:</span><code className="text-sm font-bold text-amber-600 dark:text-amber-400">{generatedOtp}</code></div>}
+                    {smtpConfigured&&<p className="text-xs text-muted-foreground">OTP sent to {adminEmail}. Check your inbox.</p>}
+                    <div><Label>OTP</Label><Input value={adminResetOtp} onChange={e=>setAdminResetOtp(e.target.value)} placeholder="Enter OTP from email"/></div>
                     <div><Label>New Password</Label><Input value={adminResetNewPass} onChange={e=>setAdminResetNewPass(e.target.value)} type="password"/></div>
                     <Button onClick={handleAdminResetVerify} disabled={!adminResetOtp.trim()||!adminResetNewPass.trim()} className="w-full">Verify & Reset</Button>
                   </div>
@@ -1588,7 +1676,12 @@ export default function Home() {
                   <Badge className="h-4 px-1 text-[8px] bg-amber-500/20 text-amber-600 border-amber-500/30 flex-shrink-0">BA</Badge>
                   {isAdmin&&<Button variant="ghost" size="icon" className={`h-5 w-5 opacity-0 group-hover:opacity-100 ${c.isHidden?'text-red-500':'text-muted-foreground'}`} onClick={e=>{e.stopPropagation();handleToggleChatHide(c.id);}} title={c.isHidden?'Unhide':'Hide'}><EyeOff className="h-2.5 w-2.5"/></Button>}
                   <Button variant="ghost" size="icon" className="h-5 w-5 opacity-0 group-hover:opacity-100" onClick={e=>{e.stopPropagation();handleStartRename(c.id,'chat',c.title);}}><Pencil className="h-2.5 w-2.5"/></Button>
-                  <Button variant="ghost" size="icon" className="h-5 w-5 opacity-0 group-hover:opacity-100" onClick={e=>{e.stopPropagation();handleDeleteDirectChat(c.id);}}><X className="h-2.5 w-2.5"/></Button>
+                  {isAdmin?(
+                    <AlertDialog><AlertDialogTrigger asChild><Button variant="ghost" size="icon" className="h-5 w-5 opacity-0 group-hover:opacity-100 text-destructive hover:text-destructive" onClick={e=>e.stopPropagation()}><Trash2 className="h-2.5 w-2.5"/></Button></AlertDialogTrigger>
+                    <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Delete Business Chat?</AlertDialogTitle><AlertDialogDescription>Delete &quot;{c.title}&quot;? This cannot be undone.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={()=>handleDeleteDirectChat(c.id)}>Delete</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+                  ):(
+                    <Button variant="ghost" size="icon" className="h-5 w-5 opacity-0 group-hover:opacity-100" onClick={e=>{e.stopPropagation();handleDeleteDirectChat(c.id);}}><Trash2 className="h-2.5 w-2.5 text-destructive"/></Button>
+                  )}
                 </div>
               ))}
               <div className="border-t my-2"/>
@@ -1618,7 +1711,12 @@ export default function Home() {
                   {c.isHidden&&isAdmin&&<Badge variant="outline" className="h-4 px-1 text-[8px] border-red-500/50 text-red-500 bg-red-500/10">Hidden</Badge>}
                   {isAdmin&&<Button variant="ghost" size="icon" className={`h-5 w-5 opacity-0 group-hover:opacity-100 ${c.isHidden?'text-red-500':'text-muted-foreground'}`} onClick={e=>{e.stopPropagation();handleToggleChatHide(c.id);}} title={c.isHidden?'Unhide':'Hide'}><EyeOff className="h-2.5 w-2.5"/></Button>}
                   <Button variant="ghost" size="icon" className="h-5 w-5 opacity-0 group-hover:opacity-100" onClick={e=>{e.stopPropagation();handleStartRename(c.id,'chat',c.title);}}><Pencil className="h-2.5 w-2.5"/></Button>
-                  <Button variant="ghost" size="icon" className="h-5 w-5 opacity-0 group-hover:opacity-100" onClick={e=>{e.stopPropagation();handleDeleteDirectChat(c.id);}}><X className="h-2.5 w-2.5"/></Button>
+                  {isAdmin?(
+                    <AlertDialog><AlertDialogTrigger asChild><Button variant="ghost" size="icon" className="h-5 w-5 opacity-0 group-hover:opacity-100 text-destructive hover:text-destructive" onClick={e=>e.stopPropagation()}><Trash2 className="h-2.5 w-2.5"/></Button></AlertDialogTrigger>
+                    <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Delete Direct Chat?</AlertDialogTitle><AlertDialogDescription>Delete &quot;{c.title}&quot;? This cannot be undone.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={()=>handleDeleteDirectChat(c.id)}>Delete</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+                  ):(
+                    <Button variant="ghost" size="icon" className="h-5 w-5 opacity-0 group-hover:opacity-100" onClick={e=>{e.stopPropagation();handleDeleteDirectChat(c.id);}}><Trash2 className="h-2.5 w-2.5 text-destructive"/></Button>
+                  )}
                 </div>
               );})}
               <div className="border-t my-2"/>
@@ -1672,7 +1770,12 @@ export default function Home() {
                       <div key={conv.id} className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md cursor-pointer text-xs transition-colors group ${selectedConversationId===conv.id?'bg-primary/10 text-primary font-medium':'text-muted-foreground hover:text-foreground hover:bg-muted'}`}
                         onClick={()=>{setSelectedConversationId(conv.id);if(isMobile)setMobileSheetOpen(false);}}>
                         <MessageSquare className="h-3 w-3 flex-shrink-0"/><span className="truncate flex-1">{conv.title}</span>
-                        <Button variant="ghost" size="icon" className="h-5 w-5 opacity-0 group-hover:opacity-100" onClick={e=>{e.stopPropagation();handleDeleteConversation(conv.id);}}><X className="h-2.5 w-2.5"/></Button>
+                        {isAdmin?(
+                          <AlertDialog><AlertDialogTrigger asChild><Button variant="ghost" size="icon" className="h-5 w-5 opacity-0 group-hover:opacity-100 text-destructive hover:text-destructive" onClick={e=>e.stopPropagation()}><Trash2 className="h-2.5 w-2.5"/></Button></AlertDialogTrigger>
+                          <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Delete Chat?</AlertDialogTitle><AlertDialogDescription>Delete &quot;{conv.title}&quot;? This cannot be undone.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={()=>handleDeleteConversation(conv.id)}>Delete</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+                        ):(
+                          <Button variant="ghost" size="icon" className="h-5 w-5 opacity-0 group-hover:opacity-100" onClick={e=>{e.stopPropagation();handleDeleteConversation(conv.id);}}><Trash2 className="h-2.5 w-2.5 text-destructive"/></Button>
+                        )}
                       </div>
                     ))}
                     <button className="flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted w-full transition-colors" onClick={handleNewChat}><Plus className="h-3 w-3"/>New Chat</button>
@@ -1941,15 +2044,24 @@ export default function Home() {
               <div className="space-y-3">
                 {adminEmail&&<div className="flex items-center gap-2 p-2 rounded-lg bg-muted/50"><Mail className="h-4 w-4 text-primary flex-shrink-0"/><span className="text-sm font-medium truncate">{adminEmail}</span></div>}
                 {!adminEmail&&<p className="text-xs text-destructive">Admin email not found. Please log in again.</p>}
+                {smtpConfigured?(
+                  <div className="flex items-center gap-2 p-2 rounded-lg bg-green-500/10 border border-green-500/30">
+                    <CheckCircle2 className="h-4 w-4 text-green-600"/><span className="text-xs text-green-600 font-medium">OTP will be sent to your email</span>
+                  </div>
+                ):(
+                  <div className="flex items-center gap-2 p-2 rounded-lg bg-amber-500/10 border border-amber-500/30">
+                    <Mail className="h-4 w-4 text-amber-600"/><span className="text-xs text-amber-600 font-medium">SMTP not configured — OTP shown on screen. Configure in Dashboard → Settings.</span>
+                  </div>
+                )}
                 {adminResetStep==='request'?(
                   <div className="space-y-2">
-                    <p className="text-xs text-muted-foreground">An OTP will be sent to your admin email. If email is not configured, the OTP will be displayed on screen.</p>
                     <Button onClick={handleAdminResetRequest} disabled={!adminEmail} className="w-full"><Mail className="h-4 w-4 mr-2"/>Send OTP to Email</Button>
                   </div>
                 ):(
                   <div className="space-y-2">
-                    {generatedOtp&&<div className="flex items-center gap-2 p-2 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800"><span className="text-xs font-medium">Your OTP:</span><code className="text-sm font-bold text-amber-600 dark:text-amber-400">{generatedOtp}</code></div>}
-                    <div><Label>OTP</Label><Input value={adminResetOtp} onChange={e=>setAdminResetOtp(e.target.value)} placeholder="Enter OTP"/></div>
+                    {!smtpConfigured&&generatedOtp&&<div className="flex items-center gap-2 p-2 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800"><span className="text-xs font-medium">OTP:</span><code className="text-sm font-bold text-amber-600 dark:text-amber-400">{generatedOtp}</code></div>}
+                    {smtpConfigured&&<p className="text-xs text-muted-foreground">OTP sent to {adminEmail}. Check your inbox.</p>}
+                    <div><Label>OTP</Label><Input value={adminResetOtp} onChange={e=>setAdminResetOtp(e.target.value)} placeholder="Enter OTP from email"/></div>
                     <div><Label>New Password</Label><Input value={adminResetNewPass} onChange={e=>setAdminResetNewPass(e.target.value)} type="password"/></div>
                     <Button onClick={handleAdminResetVerify} disabled={!adminResetOtp.trim()||!adminResetNewPass.trim()} className="w-full">Verify & Reset</Button>
                   </div>
