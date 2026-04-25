@@ -177,3 +177,54 @@ Stage Summary:
 - Lint passes, page loads successfully
 - Backend APIs: 13 new routes created
 - Frontend: Full-page admin dashboard, chat mode indication, training retake system, bulk hide, rename, audit logs
+
+---
+Task ID: 1
+Agent: Main
+Task: Fix 5 critical bugs in Trishul AI Helper - Dashboard dialogs, chat locking, B.A. AI, training retake, lock checks
+
+Work Log:
+- CHANGE 1: Fixed Dialog Popups Not Showing in Dashboard — dashboard view returns early, so all Dialog components defined after the return were never rendered. Added all critical dialogs (New Employee, New Training, Assign Training, Reset Password, Change Password, Delete Requests, Bulk Hide) INSIDE the dashboard return block.
+- CHANGE 2: Fixed Direct Chat Locking — admin can now lock a direct chat away from employees. Updated `handleSelectDirectChat` to: (a) block employees if admin has locked the chat, (b) when admin opens a chat, lock it with `lockedBy:'admin'`. Added `isChatLockedForEmployee` and `isProjectLockedForEmployee` variables. Updated chat input section to show a locked message when admin is using the chat/project.
+- CHANGE 3: Fixed Trishul B.A. Chat Using Wrong AI — the `isBusiness` condition was `!!selectedBusinessChatId||activeView==='chat'&&userRole==='admin'&&!!selectedBusinessChatId` which was redundant and could cause issues. Simplified to `!!selectedBusinessChatId`.
+- CHANGE 4: Fixed Employee Test - Prevent Retake After Completion — removed `canRetake` variable and `retakeApproved` local variable. Replaced the finished training view with view-only questions showing CheckCircle2/XCircle icons and correct/wrong indicators. Removed "Start Retake Quiz" button from finished state — employee must request retake from admin. Removed retake request/retake pending badges from video view section — only shown in finished/results view. Changed "Start Quiz" button to only show if training is NOT finished.
+- CHANGE 5: Added lock checks in `handleSendMessage` — at the beginning of the function, checks if the current direct chat or project is locked by admin for employees, and shows a toast error if so, preventing message sending.
+
+Stage Summary:
+- All 5 bug fixes applied to page.tsx
+- Dashboard dialogs now render correctly when admin is on dashboard view
+- Admin can lock direct chats away from employees; employees see locked message
+- Business chat (Trishul B.A.) no longer accidentally uses wrong AI endpoint
+- Employees cannot retake tests without admin approval; finished tests show review with correct/wrong indicators
+- Message sending is blocked when admin has locked the chat/project
+- Lint passes with no errors, dev server running clean
+
+---
+Task ID: 2
+Agent: Main
+Task: Fix 8 issues: Dashboard dialogs, AI suggest categories, video-based quiz, test retake, chat locking, B.A. chat, business prompt, OTP email
+
+Work Log:
+- Fixed dialog popups (New Employee, New Training, Assign Training) not showing in dashboard view - added dialog components inside dashboard return block
+- Fixed AI suggest to generate category-specific suggestions - updated /api/trainings/recommend prompt to generate sub-topics of the specified category instead of generic recommendations
+- Fixed quiz generation to fetch YouTube video transcript - updated /api/trainings/generate-quiz to use z-ai-web-dev-sdk page_reader function to fetch video page content, then generate questions based on actual video content
+- Updated client handleGenerateQuiz to pass videoUrl to the API
+- Fixed employee test retake - after test completion: video hidden, questions shown in view-only format with CheckCircle2/XCircle icons, correct/wrong indicators, NO retake without admin approval
+- Fixed direct chat locking - admin can lock chats away from employees, employees see locked message and cannot send messages, admin can End Chat to release lock
+- Fixed Trishul B.A. chat using wrong AI endpoint - simplified isBusiness condition from complex redundant expression to just !!selectedBusinessChatId
+- Made Trishul B.A. use business-oriented AI prompts - completely rewrote buildBusinessAgentPrompt() to focus exclusively on business strategy, NOT coding
+- Implemented OTP email sending for password reset - added nodemailer with SMTP support, sends styled HTML email with OTP code, falls back to on-screen display if SMTP not configured
+- Updated fetchProjectLocks to also fetch conversation locks using includeConversations=true parameter
+- Updated conversation lock API to allow admin to override employee locks
+- Added admin "End Chat" button in sidebar for releasing direct chat locks
+
+Stage Summary:
+- All 8 issues fixed
+- Dashboard dialogs now work correctly
+- AI suggestions are now category-specific (Python → Python subtopics, not generic)
+- Quiz questions now generated from actual YouTube video content using web reader
+- Employees cannot retake tests without admin approval
+- Direct chat locking enforced - admin blocks employee chat, employee blocked if admin is in chat
+- Trishul B.A. uses dedicated business-only AI prompt (no coding)
+- OTP sent via email when SMTP configured, displayed on screen when not
+- Lint passes, dev server running clean

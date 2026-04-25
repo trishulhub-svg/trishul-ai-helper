@@ -24,8 +24,31 @@ export async function POST(
       return NextResponse.json({ error: 'Conversation not found' }, { status: 404 });
     }
 
+    // Admin can override any existing lock
+    const isAdmin = lockedBy === 'admin';
+
     // Check if already locked by someone else
     if (conversation.lock && conversation.lock.lockedBy !== lockedBy) {
+      // If admin, override the existing lock
+      if (isAdmin) {
+        // Delete existing lock and create new one for admin
+        await db.conversationLock.deleteMany({ where: { conversationId: id } });
+        const lock = await db.conversationLock.create({
+          data: { conversationId: id, lockedBy },
+        });
+        await db.auditLog.create({
+          data: {
+            action: 'lock',
+            targetType: conversation.mode === 'business' ? 'business_chat' : conversation.mode === 'direct' ? 'direct_chat' : 'conversation',
+            targetId: id,
+            targetName: conversation.title,
+            oldValue: conversation.lock.lockedBy,
+            newValue: lockedBy,
+            performedBy: lockedBy,
+          },
+        });
+        return NextResponse.json({ lock }, { status: 201 });
+      }
       return NextResponse.json(
         { error: 'Conversation is already locked by another user', lockedBy: conversation.lock.lockedBy },
         { status: 409 }

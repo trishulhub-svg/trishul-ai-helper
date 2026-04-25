@@ -523,7 +523,7 @@ export default function Home() {
 
   // ============ FETCHERS ============
   const fetchProjectLocks = useCallback(async () => {
-    try { const r = await fetch('/api/locks'); if(r.ok){ const l=await r.json(); const m:Record<string,{lockedBy:string;lockedAt:string}>={}; l.forEach((x:{projectId:string;lockedBy:string;lockedAt:string})=>{m[x.projectId]={lockedBy:x.lockedBy,lockedAt:x.lockedAt};}); setProjectLocks(m); } } catch{}
+    try { const r = await fetch('/api/locks?includeConversations=true'); if(r.ok){ const l=await r.json(); const pm:Record<string,{lockedBy:string;lockedAt:string}>={}; const cm:Record<string,{lockedBy:string;lockedAt:string}>={}; l.forEach((x:{projectId?:string;conversationId?:string;lockedBy:string;lockedAt:string})=>{if(x.projectId)pm[x.projectId]={lockedBy:x.lockedBy,lockedAt:x.lockedAt};if(x.conversationId)cm[x.conversationId]={lockedBy:x.lockedBy,lockedAt:x.lockedAt};}); setProjectLocks(pm); setDirectChatLocks(cm); } } catch{}
   }, []);
 
   const fetchDeleteRequests = useCallback(async () => {
@@ -789,12 +789,19 @@ export default function Home() {
 
   const handleSendMessage = async () => {
     if((!inputMessage.trim() && pendingAttachments.length === 0)||isLoading) return;
+    // Check if chat/project is locked by admin for employee
+    if(userRole==='employee' && selectedDirectChatId && directChatLocks[selectedDirectChatId]?.lockedBy==='admin'){
+      toast({title:'Chat Locked',description:'Admin is currently using this chat',variant:'destructive'});return;
+    }
+    if(userRole==='employee' && selectedProjectId && projectLocks[selectedProjectId]?.lockedBy==='admin'){
+      toast({title:'Project Locked',description:'Admin is currently using this project',variant:'destructive'});return;
+    }
     const userMsg=inputMessage.trim();setInputMessage('');setIsLoading(true);setUserScrolledUp(false);
     const currentAttachments=[...pendingAttachments];setPendingAttachments([]);
     const tempMsg:Message={id:'temp-'+Date.now(),conversationId:selectedBusinessChatId||selectedDirectChatId||selectedConversationId||'',role:'user',content:userMsg||'📎 Shared file(s)',createdAt:new Date().toISOString(),attachments:currentAttachments};
     setMessages(prev=>[...prev,tempMsg]);
     try{
-      const isBusiness=!!selectedBusinessChatId||activeView==='chat'&&userRole==='admin'&&!!selectedBusinessChatId;
+      const isBusiness=!!selectedBusinessChatId;
       const endpoint=isBusiness?'/api/chat/business':'/api/chat';
       const r=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
         projectId:selectedProjectId||undefined,
@@ -843,9 +850,11 @@ export default function Home() {
 
   // ============ DIRECT CHAT LOCKING ============
   const handleSelectDirectChat = async (chatId:string) => {
+    // For employees: check lock and try to acquire lock
     if(userRole==='employee'){
       const lockInfo=directChatLocks[chatId];
-      if(lockInfo&&lockInfo.lockedBy!==employeeName){toast({title:'Chat Locked',description:`In use by ${lockInfo.lockedBy}`,variant:'destructive'});return;}
+      if(lockInfo&&lockInfo.lockedBy!=='admin'&&lockInfo.lockedBy!==employeeName){toast({title:'Chat Locked',description:`In use by ${lockInfo.lockedBy}`,variant:'destructive'});return;}
+      if(lockInfo&&lockInfo.lockedBy==='admin'){toast({title:'Chat Locked',description:'Admin is currently using this chat',variant:'destructive'});return;}
       if(!lockInfo){
         try{const r=await fetch(`/api/conversations/${chatId}/lock`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lockedBy:employeeName})});
           if(r.ok) setLockedDirectChatId(chatId);
@@ -853,13 +862,19 @@ export default function Home() {
         }catch{toast({title:'Error',description:'Failed to lock chat',variant:'destructive'});return;}
       }
     }
+    // For admin: if employee is using this chat, lock it away from employee
+    if(userRole==='admin'){
+      try{const r=await fetch(`/api/conversations/${chatId}/lock`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lockedBy:'admin'})});
+        if(r.ok) setLockedDirectChatId(chatId);
+      }catch{}
+    }
     setSelectedDirectChatId(chatId);setSelectedProjectId(null);setSelectedConversationId(null);setSelectedBusinessChatId(null);setChatMode('direct');
     if(isMobile)setMobileSheetOpen(false);
   };
   const handleEndDirectChat = async () => {
-    if(!lockedDirectChatId||userRole!=='employee') return;
-    try{await fetch(`/api/conversations/${lockedDirectChatId}/unlock`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lockedBy:employeeName})});
-      setLockedDirectChatId(null);setSelectedDirectChatId(null);setMessages([]);setChatMode('none');fetchDirectChats();
+    if(!lockedDirectChatId) return;
+    try{await fetch(`/api/conversations/${lockedDirectChatId}/unlock`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lockedBy:userRole==='admin'?'admin':employeeName})});
+      setLockedDirectChatId(null);setSelectedDirectChatId(null);setMessages([]);setChatMode('none');fetchDirectChats();fetchProjectLocks();
       toast({title:'Chat Saved',description:'Session ended.'});
     }catch{toast({title:'Error',variant:'destructive'});}
   };
@@ -886,7 +901,10 @@ export default function Home() {
   const handleAdminResetRequest = async () => {
     if(!adminEmail){toast({title:'Error',description:'Admin email not found. Please log in again.',variant:'destructive'});return;}
     try{const r=await fetch('/api/admin/request-password-reset',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:adminEmail})});
-      if(r.ok){const d=await r.json();setGeneratedOtp(d.otp||'');setAdminId(d.adminId||adminId);setAdminResetStep('verify');toast({title:'OTP Generated',description:`OTP: ${d.otp} (shown here since email is not configured)`});}
+      if(r.ok){const d=await r.json();setGeneratedOtp(d.otp||'');setAdminId(d.adminId||adminId);setAdminResetStep('verify');
+        if(d.emailSent){toast({title:'OTP Sent',description:`OTP sent to ${adminEmail}. Check your inbox.`});}
+        else{toast({title:'OTP Generated',description:`OTP: ${d.otp} (shown here since email is not configured)`});}
+      }
       else{const d=await r.json().catch(()=>({}));toast({title:'Error',description:d.error||'Failed',variant:'destructive'});}
     }catch{toast({title:'Error',variant:'destructive'});}
   };
@@ -950,7 +968,7 @@ export default function Home() {
   const handleGenerateQuiz = async () => {
     if(!newTrainingCategory.trim()){toast({title:'Required',description:'Enter a category first',variant:'destructive'});return;}
     setGeneratingQuiz(true);
-    try{const r=await fetch('/api/trainings/generate-quiz',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({category:newTrainingCategory.trim(),difficulty:newTrainingDifficulty})});
+    try{const r=await fetch('/api/trainings/generate-quiz',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({category:newTrainingCategory.trim(),difficulty:newTrainingDifficulty,videoUrl:newTrainingVideoUrl.trim()})});
       if(r.ok){const d=await r.json();setNewTrainingQuestions(d.questions||[]);toast({title:'Quiz Generated',description:`${(d.questions||[]).length} questions`});}
       else toast({title:'Error',description:'Failed to generate quiz',variant:'destructive'});
     }catch{toast({title:'Error',variant:'destructive'});}
@@ -1067,9 +1085,7 @@ export default function Home() {
     if(activeTraining && activeTraining.training){
       const questions = parseQuestions(activeTraining.training.questions||'[]');
       const isFinished = activeTraining.status==='finished';
-      const canRetake = activeTraining.attempts < activeTraining.maxAttempts;
       const hasRetakeRequest = activeTraining.retakeRequested;
-      const retakeApproved = activeTraining.retakeApproved;
       return (
         <div className="min-h-screen flex flex-col bg-background">
           <header className="border-b p-3 flex items-center gap-3">
@@ -1098,24 +1114,30 @@ export default function Home() {
                       const isCorrect = userAnswer===q.correctAnswer;
                       return(
                         <div key={i} className={`p-3 rounded-lg border ${isCorrect?'border-green-500/50 bg-green-500/5':'border-red-500/50 bg-red-500/5'}`}>
-                          <p className="font-medium text-sm mb-1">Q{i+1}: {q.question}</p>
-                          <p className="text-xs">Your answer: <span className={isCorrect?'text-green-600':'text-red-600'}>{q.options[userAnswer as keyof typeof q.options]||'Not answered'}</span></p>
-                          {!isCorrect&&<p className="text-xs text-green-600">Correct: {q.options[q.correctAnswer as keyof typeof q.options]}</p>}
+                          <div className="flex items-start gap-2">
+                            {isCorrect?<CheckCircle2 className="h-4 w-4 text-green-600 flex-shrink-0 mt-0.5"/>:<XCircle className="h-4 w-4 text-red-600 flex-shrink-0 mt-0.5"/>}
+                            <div className="flex-1">
+                              <p className="font-medium text-sm mb-1">Q{i+1}: {q.question}</p>
+                              <div className="space-y-0.5 text-xs">
+                                <p>Your answer: <span className={isCorrect?'text-green-600 font-medium':'text-red-600 font-medium'}>{q.options[userAnswer as keyof typeof q.options]||'Not answered'}</span></p>
+                                {!isCorrect&&<p className="text-green-600 font-medium">Correct answer: {q.options[q.correctAnswer as keyof typeof q.options]}</p>}
+                              </div>
+                            </div>
+                          </div>
                         </div>
                       );
                     })}
                   </div>
                 )}
-                {!canRetake && !hasRetakeRequest && (
-                  <Button variant="outline" className="w-full" onClick={()=>handleRequestRetake(activeTraining.id)}>Request Retake</Button>
+                {!hasRetakeRequest && (
+                  <Button variant="outline" className="w-full" onClick={()=>handleRequestRetake(activeTraining.id)}>
+                    <ClipboardList className="h-4 w-4 mr-2"/>Request Retake
+                  </Button>
                 )}
-                {hasRetakeRequest && !retakeApproved && (
+                {hasRetakeRequest && !activeTraining.retakeApproved && (
                   <div className="text-center p-3 bg-amber-500/10 rounded-lg border border-amber-500/30">
                     <p className="text-sm text-amber-600">Retake requested — waiting for admin approval</p>
                   </div>
-                )}
-                {retakeApproved && (
-                  <Button className="w-full" onClick={()=>{setQuizMode(true);}}>Start Retake Quiz</Button>
                 )}
               </div>
             ) : !quizMode ? (
@@ -1129,18 +1151,10 @@ export default function Home() {
                 </div>
                 <p className="text-sm text-muted-foreground">{activeTraining.training.description}</p>
                 {activeTraining.dueDate && <p className="text-xs text-muted-foreground"><Clock className="h-3 w-3 inline mr-1"/>Due: {new Date(activeTraining.dueDate).toLocaleDateString()}</p>}
-                {questions.length > 0 && canRetake && (
+                {questions.length > 0 && activeTraining.status !== 'finished' && (
                   <Button onClick={()=>setQuizMode(true)} disabled={!activeTraining.training.videoUrl&&!videoWatched} className="w-full">
                     <Play className="h-4 w-4 mr-2"/>Start Quiz ({questions.length} questions, 10 min)
                   </Button>
-                )}
-                {!canRetake && !hasRetakeRequest && questions.length>0 && (
-                  <Button variant="outline" className="w-full" onClick={()=>handleRequestRetake(activeTraining.id)}>Request Retake</Button>
-                )}
-                {hasRetakeRequest && !retakeApproved && (
-                  <div className="text-center p-3 bg-amber-500/10 rounded-lg border border-amber-500/30">
-                    <p className="text-sm text-amber-600">Retake requested — waiting for admin approval</p>
-                  </div>
                 )}
               </div>
             ) : (
@@ -1324,7 +1338,7 @@ export default function Home() {
                   <CardHeader><CardTitle className="text-sm">Reset Password (OTP to Email)</CardTitle></CardHeader>
                   <CardContent className="space-y-3">
                     {adminResetStep==='request'?(
-                      <div><p className="text-xs text-muted-foreground mb-2">An OTP will be generated. In production, this would be sent to your admin email.</p><Button onClick={handleAdminResetRequest}>Generate OTP</Button></div>
+                      <div><p className="text-xs text-muted-foreground mb-2">An OTP will be sent to your admin email. If email is not configured, the OTP will be displayed on screen.</p><Button onClick={handleAdminResetRequest}>Send OTP</Button></div>
                     ):(
                       <div className="space-y-3">
                         <div><Label>OTP</Label><Input value={adminResetOtp} onChange={e=>setAdminResetOtp(e.target.value)} placeholder="Enter OTP"/></div>
@@ -1356,6 +1370,150 @@ export default function Home() {
             </TabsContent>
           </ScrollArea>
         </Tabs>
+        {/* Dashboard Dialogs */}
+      <Dialog open={showNewEmployee} onOpenChange={v=>{setShowNewEmployee(v);if(!v){setNewEmpName('');setNewEmpPass('');}}}>
+        <DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>Create Employee</DialogTitle><DialogDescription>Add a new employee with login credentials</DialogDescription></DialogHeader>
+          <div className="space-y-3">
+            <div><Label>Full Name *</Label><Input value={newEmpName} onChange={e=>setNewEmpName(e.target.value)} placeholder="John Doe" autoFocus onKeyDown={e=>e.key==='Enter'&&handleCreateEmployee()}/></div>
+            <div><Label>Initial Password</Label><Input value={newEmpPass} onChange={e=>setNewEmpPass(e.target.value)} placeholder="Defaults to password123" type="password"/></div>
+            <Button onClick={handleCreateEmployee} disabled={!newEmpName.trim()} className="w-full"><Plus className="h-4 w-4 mr-2"/>Create Employee</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={showNewTraining} onOpenChange={v=>{setShowNewTraining(v);if(!v){setNewTrainingTitle('');setNewTrainingCategory('');setNewTrainingDifficulty('beginner');setNewTrainingVideoUrl('');setNewTrainingDesc('');setNewTrainingQuestions([]);}}}>
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>Create Training</DialogTitle><DialogDescription>Set up a new training module with video and quiz</DialogDescription></DialogHeader>
+          <div className="space-y-3">
+            <div><Label>Title *</Label><Input value={newTrainingTitle} onChange={e=>setNewTrainingTitle(e.target.value)} placeholder="PHP Fundamentals" autoFocus/></div>
+            <div className="flex gap-2 items-end">
+              <div className="flex-1"><Label>Category *</Label><Input value={newTrainingCategory} onChange={e=>setNewTrainingCategory(e.target.value)} placeholder="PHP, HTML, Public Health..."/></div>
+              <Button variant="outline" size="sm" className="h-9 text-xs gap-1 mb-0.5" onClick={handleRecommendCategories} disabled={recommending}>{recommending?<Loader2 className="h-3 w-3 animate-spin"/>:<Lightbulb className="h-3 w-3"/>}AI Suggest</Button>
+            </div>
+            {recommendedCategories.length>0 && (
+              <div className="flex flex-wrap gap-1.5">{recommendedCategories.map((c,i)=>(
+                <Badge key={i} variant="outline" className="cursor-pointer hover:bg-primary/10 text-[10px]" onClick={()=>setNewTrainingCategory(c.name)}>{c.name}</Badge>
+              ))}</div>
+            )}
+            <div><Label>Difficulty</Label><Select value={newTrainingDifficulty} onValueChange={v=>setNewTrainingDifficulty(v)}><SelectTrigger><SelectValue/></SelectTrigger><SelectContent><SelectItem value="beginner">Beginner</SelectItem><SelectItem value="intermediate">Intermediate</SelectItem><SelectItem value="advanced">Advanced</SelectItem></SelectContent></Select></div>
+            <div><Label>Video URL (YouTube)</Label><Input value={newTrainingVideoUrl} onChange={e=>setNewTrainingVideoUrl(e.target.value)} placeholder="https://youtube.com/watch?v=..."/></div>
+            <div><Label>Description</Label><Textarea value={newTrainingDesc} onChange={e=>setNewTrainingDesc(e.target.value)} placeholder="Training description..." rows={2}/></div>
+            <Separator/>
+            <div className="flex items-center justify-between"><Label className="text-sm font-semibold">Quiz Questions ({newTrainingQuestions.length})</Label>
+              <Button variant="outline" size="sm" className="text-xs gap-1" onClick={handleGenerateQuiz} disabled={generatingQuiz||!newTrainingCategory.trim()}>
+                {generatingQuiz?<Loader2 className="h-3 w-3 animate-spin"/>:<Sparkles className="h-3 w-3"/>}AI Generate Quiz
+              </Button>
+            </div>
+            {newTrainingQuestions.length>0 && (
+              <div className="space-y-2 max-h-60 overflow-y-auto">{newTrainingQuestions.map((q,i)=>(
+                <div key={i} className="p-2 rounded-lg border text-xs"><p className="font-medium">Q{i+1}: {q.question}</p><p className="text-muted-foreground">A: {q.options.a} | B: {q.options.b} | C: {q.options.c} | D: {q.options.d}</p></div>
+              ))}</div>
+            )}
+            <Button onClick={handleCreateTraining} disabled={!newTrainingTitle.trim()||!newTrainingCategory.trim()} className="w-full"><GraduationCap className="h-4 w-4 mr-2"/>Create Training</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={showAssignTraining} onOpenChange={v=>{setShowAssignTraining(v);if(!v){setAssignTrainingId(null);setSelectedEmployeeIds(new Set());setNewTrainingDueDate('');}}}>
+        <DialogContent className="sm:max-w-md max-h-[85vh] overflow-y-auto"><DialogHeader><DialogTitle>Assign Training</DialogTitle><DialogDescription>Select employees and set a due date</DialogDescription></DialogHeader>
+          <div className="space-y-3">
+            <div><Label>Due Date (optional)</Label><Input type="date" value={newTrainingDueDate} onChange={e=>setNewTrainingDueDate(e.target.value)}/></div>
+            {employees.length===0?<p className="text-sm text-muted-foreground">No employees to assign to</p>:
+            <div className="space-y-2">{employees.map(emp=>(
+              <div key={emp.id} className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-colors ${selectedEmployeeIds.has(emp.id)?'bg-primary/10 border-primary':'hover:bg-muted'}`}
+                onClick={()=>setSelectedEmployeeIds(prev=>{const n=new Set(prev);if(n.has(emp.id))n.delete(emp.id);else n.add(emp.id);return n;})}>
+                <div className={`h-4 w-4 rounded border ${selectedEmployeeIds.has(emp.id)?'bg-primary border-primary':'border-border'} flex items-center justify-center`}>
+                  {selectedEmployeeIds.has(emp.id)&&<Check className="h-3 w-3 text-primary-foreground"/>}
+                </div>
+                <span className="text-sm">{emp.name}</span><span className="text-xs text-muted-foreground ml-auto">{emp.employeeId}</span>
+              </div>
+            ))}</div>}
+            <Button onClick={handleAssignTraining} disabled={selectedEmployeeIds.size===0} className="w-full"><Users className="h-4 w-4 mr-2"/>Assign to {selectedEmployeeIds.size} Employee{selectedEmployeeIds.size!==1?'s':''}</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={showResetPassword} onOpenChange={v=>{setShowResetPassword(v);if(!v){setResetEmpId(null);setResetEmpPass('');}}}>
+        <DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>Reset Employee Password</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">Employee: {employees.find(e=>e.id===resetEmpId)?.name}</p>
+            <div><Label>New Password *</Label><Input value={resetEmpPass} onChange={e=>setResetEmpPass(e.target.value)} placeholder="Enter new password" type="password"/></div>
+            <Button onClick={handleResetEmployeePassword} disabled={!resetEmpPass.trim()} className="w-full">Reset Password</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={showChangePassword} onOpenChange={v=>{setShowChangePassword(v);if(!v){setCurrentPassword('');setNewPassword('');setAdminResetStep('request');setAdminResetOtp('');setAdminResetNewPass('');setGeneratedOtp('');}}}>
+        <DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle className="flex items-center gap-2"><KeyRound className="h-5 w-5"/>Password Management</DialogTitle></DialogHeader>
+          <Tabs defaultValue="change" className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="change" className="text-xs gap-1"><KeyRound className="h-3 w-3"/>Change Password</TabsTrigger>
+              <TabsTrigger value="reset" className="text-xs gap-1"><Mail className="h-3 w-3"/>Reset via Email</TabsTrigger>
+            </TabsList>
+            <TabsContent value="change" className="mt-3">
+              <div className="space-y-3">
+                <div><Label>Current Password</Label><Input value={currentPassword} onChange={e=>setCurrentPassword(e.target.value)} type="password"/></div>
+                <div><Label>New Password</Label><Input value={newPassword} onChange={e=>setNewPassword(e.target.value)} type="password"/></div>
+                <Button onClick={handleChangePassword} disabled={!currentPassword.trim()||!newPassword.trim()} className="w-full">Change Password</Button>
+              </div>
+            </TabsContent>
+            <TabsContent value="reset" className="mt-3">
+              <div className="space-y-3">
+                {adminEmail&&<div className="flex items-center gap-2 p-2 rounded-lg bg-muted/50"><Mail className="h-4 w-4 text-primary flex-shrink-0"/><span className="text-sm font-medium truncate">{adminEmail}</span></div>}
+                {!adminEmail&&<p className="text-xs text-destructive">Admin email not found. Please log in again.</p>}
+                {adminResetStep==='request'?(
+                  <div className="space-y-2">
+                    <p className="text-xs text-muted-foreground">An OTP will be sent to your admin email. If email is not configured, the OTP will be displayed on screen.</p>
+                    <Button onClick={handleAdminResetRequest} disabled={!adminEmail} className="w-full"><Mail className="h-4 w-4 mr-2"/>Send OTP to Email</Button>
+                  </div>
+                ):(
+                  <div className="space-y-2">
+                    {generatedOtp&&<div className="flex items-center gap-2 p-2 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800"><span className="text-xs font-medium">Your OTP:</span><code className="text-sm font-bold text-amber-600 dark:text-amber-400">{generatedOtp}</code></div>}
+                    <div><Label>OTP</Label><Input value={adminResetOtp} onChange={e=>setAdminResetOtp(e.target.value)} placeholder="Enter OTP"/></div>
+                    <div><Label>New Password</Label><Input value={adminResetNewPass} onChange={e=>setAdminResetNewPass(e.target.value)} type="password"/></div>
+                    <Button onClick={handleAdminResetVerify} disabled={!adminResetOtp.trim()||!adminResetNewPass.trim()} className="w-full">Verify & Reset</Button>
+                  </div>
+                )}
+              </div>
+            </TabsContent>
+          </Tabs>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={showDeleteRequests} onOpenChange={setShowDeleteRequests}>
+        <DialogContent className="sm:max-w-lg max-h-[80vh] overflow-y-auto"><DialogHeader><DialogTitle>Deletion Requests</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            {deleteRequests.length===0?<p className="text-sm text-muted-foreground">No pending requests</p>:
+            deleteRequests.map(req=>(
+              <div key={req.id} className="p-3 rounded-lg border space-y-2">
+                <div className="flex items-center justify-between"><span className="font-medium text-sm">{req.targetName}</span><Badge variant="outline" className="text-[9px]">{req.type}</Badge></div>
+                <p className="text-xs text-muted-foreground">By: {req.requestedBy} • Reason: {req.reason}</p>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" className="text-xs gap-1" onClick={async()=>{await fetch(`/api/delete-requests/${req.id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'approved',reviewedBy:'admin'})});fetchDeleteRequests();fetchProjects();fetchDirectChats();fetchBusinessChats();toast({title:'Approved'});}}><CheckCircle2 className="h-3 w-3"/>Approve</Button>
+                  <Button size="sm" variant="outline" className="text-xs gap-1 text-destructive" onClick={async()=>{await fetch(`/api/delete-requests/${req.id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'rejected',reviewedBy:'admin'})});fetchDeleteRequests();toast({title:'Rejected'});}}><XCircle className="h-3 w-3"/>Reject</Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={showBulkHide} onOpenChange={v=>{setShowBulkHide(v);if(!v)setBulkHideSelection(new Set());}}>
+        <DialogContent className="sm:max-w-lg max-h-[80vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>Bulk Hide {bulkHideType==='direct_chats'?'Direct Chats':'Projects'}</DialogTitle>
+          <DialogDescription>Uncheck items you want to keep visible. Checked items will be hidden from employees.</DialogDescription></DialogHeader>
+          <div className="space-y-2 max-h-60 overflow-y-auto">
+            {(bulkHideType==='direct_chats'?visibleDirectChats:visibleProjects).map(item=>(
+              <div key={item.id} className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-colors ${bulkHideSelection.has(item.id)?'bg-primary/10 border-primary':'hover:bg-muted'}`}
+                onClick={()=>setBulkHideSelection(prev=>{const n=new Set(prev);if(n.has(item.id))n.delete(item.id);else n.add(item.id);return n;})}>
+                <div className={`h-4 w-4 rounded border ${bulkHideSelection.has(item.id)?'bg-primary border-primary':'border-border'} flex items-center justify-center`}>
+                  {bulkHideSelection.has(item.id)&&<Check className="h-3 w-3 text-primary-foreground"/>}
+                </div>
+                <span className="text-sm truncate">{item.title||item.name}</span>
+              </div>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={()=>setShowBulkHide(false)}>Cancel</Button>
+            <Button onClick={handleBulkHide} disabled={bulkHideSelection.size===0}>
+              <EyeOff className="h-4 w-4 mr-2"/>Hide {bulkHideSelection.size} Item{bulkHideSelection.size!==1?'s':''}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       </div>
     );
   }
@@ -1385,6 +1543,7 @@ export default function Home() {
               {deleteRequests.length>0&&<Badge variant="destructive" className="h-4 min-w-4 px-1 text-[8px] absolute -top-1 -right-1">{deleteRequests.length}</Badge>}
             </Button>
             <Button size="sm" variant="outline" className="h-7 text-[10px] gap-1" onClick={()=>setShowChangePassword(true)}><KeyRound className="h-3 w-3"/>Pass</Button>
+            {lockedDirectChatId&&<Button size="sm" variant="outline" className="h-7 text-[10px] gap-1 border-amber-500/50 text-amber-600" onClick={handleEndDirectChat}><Unlock className="h-3 w-3"/>End Chat</Button>}
             <Button size="sm" variant="ghost" className="h-7 text-[10px] gap-1 text-destructive hover:text-destructive" onClick={handleLogout}><LogOut className="h-3 w-3"/></Button>
           </div>
         )}
@@ -1541,6 +1700,8 @@ export default function Home() {
   );
 
   const currentChatMode = selectedBusinessChatId ? 'business' : selectedDirectChatId ? 'direct' : selectedProjectId ? 'project' : chatMode;
+  const isProjectLockedForEmployee = userRole==='employee' && selectedProjectId && projectLocks[selectedProjectId]?.lockedBy==='admin';
+  const isChatLockedForEmployee = (userRole==='employee' && selectedDirectChatId && directChatLocks[selectedDirectChatId]?.lockedBy==='admin') || (userRole==='employee' && selectedProjectId && projectLocks[selectedProjectId]?.lockedBy==='admin');
   const chatHeader = currentChatMode==='business' ? 'Trishul B.A. — Business Agent' : currentChatMode==='direct' ? 'Direct AI Chat' : currentProject?.name || 'Trishul AI Helper';
   const hasActiveChat = chatMode!=='none'||!!(selectedBusinessChatId||selectedDirectChatId||selectedConversationId||messages.length>0);
 
@@ -1605,7 +1766,12 @@ export default function Home() {
 
           {/* Input */}
           <div className="border-t p-2 sm:p-3">
-            {/* Pending Attachments Preview */}
+            {isChatLockedForEmployee ? (
+              <div className="flex items-center justify-center gap-2 p-3 bg-amber-500/10 rounded-lg border border-amber-500/30">
+                <Lock className="h-4 w-4 text-amber-600"/><p className="text-sm text-amber-600">Admin is currently using this chat. You cannot send messages.</p>
+              </div>
+            ) : (
+            <>
             {pendingAttachments.length > 0 && (
               <div className="flex flex-wrap gap-2 mb-2 max-w-4xl mx-auto">
                 {pendingAttachments.map((att, idx) => (
@@ -1646,6 +1812,8 @@ export default function Home() {
                 rows={1}/>
               <Button onClick={handleSendMessage} disabled={isLoading||(!inputMessage.trim()&&pendingAttachments.length===0)} size="icon" className="h-10 w-10 flex-shrink-0"><Send className="h-4 w-4"/></Button>
             </div>
+            </>
+            )}
           </div>
         </div>
 
@@ -1775,7 +1943,7 @@ export default function Home() {
                 {!adminEmail&&<p className="text-xs text-destructive">Admin email not found. Please log in again.</p>}
                 {adminResetStep==='request'?(
                   <div className="space-y-2">
-                    <p className="text-xs text-muted-foreground">An OTP will be generated and sent to your admin email. Since email sending is not configured in this environment, the OTP will be displayed on screen.</p>
+                    <p className="text-xs text-muted-foreground">An OTP will be sent to your admin email. If email is not configured, the OTP will be displayed on screen.</p>
                     <Button onClick={handleAdminResetRequest} disabled={!adminEmail} className="w-full"><Mail className="h-4 w-4 mr-2"/>Send OTP to Email</Button>
                   </div>
                 ):(

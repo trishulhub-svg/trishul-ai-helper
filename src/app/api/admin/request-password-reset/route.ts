@@ -1,8 +1,66 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import nodemailer from 'nodemailer';
 
 // Module-level Map for storing OTPs (in-memory, resets on server restart)
 const otpStore = new Map<string, { otp: string; expiresAt: number }>();
+
+// Email transporter - configured via environment variables
+function getEmailTransporter() {
+  const host = process.env.SMTP_HOST;
+  const port = process.env.SMTP_PORT;
+  const user = process.env.SMTP_USER;
+  const pass = process.env.SMTP_PASS;
+
+  if (!host || !user || !pass) {
+    return null; // Email not configured
+  }
+
+  return nodemailer.createTransport({
+    host,
+    port: port ? parseInt(port) : 587,
+    secure: parseInt(port || '587') === 465,
+    auth: { user, pass },
+  });
+}
+
+async function sendOtpEmail(email: string, otp: string): Promise<boolean> {
+  const transporter = getEmailTransporter();
+
+  if (!transporter) {
+    console.log('SMTP not configured. OTP for', email, ':', otp);
+    return false; // Email not sent (will show OTP on screen instead)
+  }
+
+  try {
+    await transporter.sendMail({
+      from: `"Trishul AI Helper" <${process.env.SMTP_USER}>`,
+      to: email,
+      subject: 'Password Reset OTP - Trishul AI Helper',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 20px;">
+          <div style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); border-radius: 12px; padding: 24px; text-align: center;">
+            <h1 style="color: #ffffff; margin: 0 0 8px 0; font-size: 20px;">Trishul AI Helper</h1>
+            <p style="color: #a0a0b0; margin: 0; font-size: 13px;">Password Reset</p>
+          </div>
+          <div style="background: #ffffff; border-radius: 0 0 12px 12px; padding: 24px; border: 1px solid #e0e0e0; border-top: none;">
+            <p style="color: #333; font-size: 14px; margin: 0 0 16px 0;">You requested a password reset for your admin account.</p>
+            <div style="background: #f5f5f5; border-radius: 8px; padding: 16px; text-align: center; margin: 0 0 16px 0;">
+              <p style="color: #666; font-size: 12px; margin: 0 0 8px 0;">Your OTP code is:</p>
+              <p style="color: #1a1a2e; font-size: 28px; font-weight: bold; letter-spacing: 4px; margin: 0;">${otp}</p>
+            </div>
+            <p style="color: #666; font-size: 12px; margin: 0 0 8px 0;">This code expires in 10 minutes.</p>
+            <p style="color: #999; font-size: 11px; margin: 0;">If you didn't request this reset, please ignore this email.</p>
+          </div>
+        </div>
+      `,
+    });
+    return true;
+  } catch (error) {
+    console.error('Failed to send OTP email:', error);
+    return false;
+  }
+}
 
 export async function POST(request: Request) {
   try {
@@ -31,24 +89,29 @@ export async function POST(request: Request) {
       expiresAt: Date.now() + 10 * 60 * 1000,
     });
 
+    // Try to send OTP via email
+    const emailSent = await sendOtpEmail(admin.email, otp);
+
     // Create audit log
     await db.auditLog.create({
       data: {
         action: 'reset_password',
-        targetType: 'employee', // Using employee as closest type for admin account
+        targetType: 'employee',
         targetId: admin.id,
         targetName: admin.email,
-        newValue: 'OTP generated for password reset',
+        newValue: emailSent ? 'OTP sent via email' : 'OTP generated (email not configured)',
         performedBy: 'system',
       },
     });
 
-    // Return OTP in response (since we can't actually send email in this environment)
     return NextResponse.json({
       success: true,
-      message: 'Password reset OTP generated',
-      otp, // Included so UI can display it
+      message: emailSent
+        ? 'OTP sent to your email address'
+        : 'OTP generated (email not configured, showing on screen)',
+      otp: emailSent ? undefined : otp, // Only show OTP on screen if email wasn't sent
       adminId: admin.id,
+      emailSent,
     });
   } catch (error) {
     console.error('Request password reset error:', error);
