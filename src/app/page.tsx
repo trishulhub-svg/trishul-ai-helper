@@ -36,6 +36,15 @@ import {
   PanelRightOpen,
   PanelRightClose,
   Eye,
+  Shield,
+  User,
+  LogOut,
+  KeyRound,
+  ClipboardList,
+  CheckCircle2,
+  XCircle,
+  Lock,
+  Unlock,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -50,6 +59,7 @@ import {
   DialogTitle,
   DialogTrigger,
   DialogDescription,
+  DialogFooter,
 } from '@/components/ui/dialog';
 import {
   AlertDialog,
@@ -117,6 +127,18 @@ interface Message {
   conversationId: string;
   role: string;
   content: string;
+  createdAt: string;
+}
+
+interface DeleteRequest {
+  id: string;
+  type: string;
+  targetId: string;
+  targetName: string;
+  requestedBy: string;
+  reason: string;
+  status: string;
+  reviewedBy: string | null;
   createdAt: string;
 }
 
@@ -363,6 +385,9 @@ function SidebarContent({
   newFileLanguage, setNewFileLanguage, newFileContent, setNewFileContent,
   addCodeContent, setAddCodeContent, handleAddFile, handleAddCode,
   handleDeleteFile, handleViewFile, onCloseMobile,
+  userRole, employeeName, projectLocks, deleteRequestsCount,
+  showDeleteRequests, setShowDeleteRequests, showChangePassword, setShowChangePassword,
+  handleLogout, handleEndAndSave, lockedProjectId,
 }: {
   projects: Project[]; currentProject: Project | null; projectFiles: CodeFile[];
   directChats: Conversation[]; selectedProjectId: string | null;
@@ -387,19 +412,67 @@ function SidebarContent({
   handleAddFile: () => void; handleAddCode: () => void;
   handleDeleteFile: (id: string) => void; handleViewFile: (file: CodeFile) => void;
   onCloseMobile?: () => void;
+  userRole: 'admin' | 'employee' | null;
+  employeeName: string;
+  projectLocks: Record<string, { lockedBy: string; lockedAt: string }>;
+  deleteRequestsCount: number;
+  showDeleteRequests: boolean; setShowDeleteRequests: (v: boolean) => void;
+  showChangePassword: boolean; setShowChangePassword: (v: boolean) => void;
+  handleLogout: () => void;
+  handleEndAndSave: () => void;
+  lockedProjectId: string | null;
 }) {
   const closeOnMobile = () => onCloseMobile?.();
+  const isAdmin = userRole === 'admin';
 
   return (
     <div className="flex flex-col h-full">
       <div className="p-3 sm:p-4 border-b">
         <div className="flex items-center gap-2.5 mb-3">
           <img src="/trishul-logo.png" alt="Trishul AI Helper" className="h-7 sm:h-8 w-auto object-contain" />
-          <div>
+          <div className="flex-1 min-w-0">
             <h1 className="text-xs sm:text-sm font-bold">Trishul AI Helper</h1>
             <p className="text-[9px] sm:text-[10px] text-muted-foreground">Your AI Code Knowledge Base</p>
           </div>
+          {/* Role badge */}
+          <Badge variant={isAdmin ? 'default' : 'secondary'} className="text-[9px] px-1.5 py-0 gap-1 flex-shrink-0">
+            {isAdmin ? <Shield className="h-2.5 w-2.5" /> : <User className="h-2.5 w-2.5" />}
+            {isAdmin ? 'Admin' : employeeName}
+          </Badge>
         </div>
+
+        {/* Admin Panel */}
+        {isAdmin && (
+          <div className="flex gap-1.5 mb-2">
+            <Button size="sm" variant="outline" className="flex-1 h-7 text-[10px] gap-1 relative" onClick={() => setShowDeleteRequests(true)}>
+              <ClipboardList className="h-3 w-3" /> Requests
+              {deleteRequestsCount > 0 && (
+                <Badge variant="destructive" className="h-4 min-w-4 px-1 text-[8px] absolute -top-1 -right-1">{deleteRequestsCount}</Badge>
+              )}
+            </Button>
+            <Button size="sm" variant="outline" className="flex-1 h-7 text-[10px] gap-1" onClick={() => setShowChangePassword(true)}>
+              <KeyRound className="h-3 w-3" /> Password
+            </Button>
+            <Button size="sm" variant="ghost" className="h-7 text-[10px] gap-1 text-destructive hover:text-destructive" onClick={handleLogout}>
+              <LogOut className="h-3 w-3" />
+            </Button>
+          </div>
+        )}
+
+        {/* Employee: End & Save button when locked */}
+        {!isAdmin && lockedProjectId && (
+          <Button size="sm" variant="outline" className="w-full h-7 text-[10px] gap-1.5 mb-2 border-emerald-500/50 text-emerald-600 hover:bg-emerald-500/10" onClick={handleEndAndSave}>
+            <Unlock className="h-3 w-3" /> End & Save
+          </Button>
+        )}
+
+        {/* Employee: Logout */}
+        {!isAdmin && (
+          <Button size="sm" variant="ghost" className="w-full h-7 text-[10px] gap-1 text-destructive hover:text-destructive mb-1" onClick={handleLogout}>
+            <LogOut className="h-3 w-3" /> Logout
+          </Button>
+        )}
+
         <Button size="sm" className="w-full h-8 text-xs gap-1.5 mb-2" variant="default" onClick={() => { handleNewDirectChat(); closeOnMobile(); }}>
           <Sparkles className="h-3.5 w-3.5" /> Direct AI Chat
         </Button>
@@ -427,74 +500,102 @@ function SidebarContent({
           {projects.length === 0 ? (
             <div className="text-center py-4 text-muted-foreground text-sm"><FolderOpen className="h-8 w-8 mx-auto mb-2 opacity-30" /><p className="text-xs">No projects yet</p></div>
           ) : (
-            projects.map((project) => (
-              <div key={project.id} className="mb-0.5">
-                <div className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg cursor-pointer transition-colors group ${selectedProjectId === project.id ? 'bg-primary/10 text-primary' : 'hover:bg-muted'}`}
-                  onClick={() => { setSelectedProjectId(project.id); setSelectedDirectChatId(null); toggleProjectExpand(project.id); closeOnMobile(); }}>
-                  {expandedProjects.has(project.id) && selectedProjectId === project.id ? <ChevronDown className="h-3.5 w-3.5 flex-shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 flex-shrink-0" />}
-                  <FolderOpen className="h-4 w-4 flex-shrink-0" />
-                  <span className="text-xs sm:text-sm font-medium truncate flex-1">{project.name}</span>
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild><Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}><Trash2 className="h-3 w-3 text-destructive" /></Button></AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader><AlertDialogTitle>Delete Project?</AlertDialogTitle><AlertDialogDescription>This will permanently delete &quot;{project.name}&quot; and all its files and conversations.</AlertDialogDescription></AlertDialogHeader>
-                      <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => handleDeleteProject(project.id)}>Delete</AlertDialogAction></AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-                </div>
+            projects.map((project) => {
+              const lockInfo = projectLocks[project.id];
+              const isLocked = !!lockInfo;
+              const isLockedByMe = lockInfo?.lockedBy === employeeName && !isAdmin;
+              const isLockedByOther = isLocked && !isLockedByMe && !isAdmin;
 
-                {expandedProjects.has(project.id) && selectedProjectId === project.id && (
-                  <div className="ml-4 mt-0.5 space-y-0.5">
-                    {currentProject?.conversations?.map((conv) => (
-                      <div key={conv.id} className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md cursor-pointer text-xs transition-colors group ${selectedConversationId === conv.id ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-muted'}`}
-                        onClick={() => { setSelectedConversationId(conv.id); closeOnMobile(); }}>
-                        <MessageSquare className="h-3 w-3 flex-shrink-0" />
-                        <span className="truncate flex-1">{conv.title}</span>
-                        <Button variant="ghost" size="icon" className="h-5 w-5 opacity-0 group-hover:opacity-100" onClick={(e) => { e.stopPropagation(); handleDeleteConversation(conv.id); }}><X className="h-2.5 w-2.5" /></Button>
-                      </div>
-                    ))}
-                    <button className="flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted w-full transition-colors" onClick={handleNewChat}><Plus className="h-3 w-3" /> New Chat</button>
-                    <div className="border-t my-1" />
-                    {projectFiles.map((file) => (
-                      <div key={file.id} className="flex items-center gap-1.5 px-2 py-1.5 rounded-md cursor-pointer text-xs transition-colors group hover:bg-muted" onClick={() => handleViewFile(file)}>
-                        <FileCode2 className="h-3 w-3 flex-shrink-0 text-emerald-500" />
-                        <span className="truncate flex-1 text-muted-foreground group-hover:text-foreground">{file.filePath}</span>
-                        <Badge variant="secondary" className="h-4 px-1 text-[9px]">v{file.version}</Badge>
-                        <Button variant="ghost" size="icon" className="h-5 w-5 opacity-0 group-hover:opacity-100" onClick={(e) => { e.stopPropagation(); handleDeleteFile(file.id); }}><X className="h-2.5 w-2.5" /></Button>
-                      </div>
-                    ))}
-                    <div className="flex gap-1 pt-1">
-                      <Dialog open={showNewFile} onOpenChange={(open) => { setShowNewFile(open); if (!open) { setNewFileName(''); setNewFilePath(''); setNewFileLanguage('typescript'); setNewFileContent(''); } }}>
-                        <DialogTrigger asChild><button className="flex items-center gap-1 px-2 py-1.5 rounded-md text-[10px] sm:text-xs text-muted-foreground hover:text-foreground hover:bg-muted flex-1 transition-colors border border-dashed border-border"><FilePlus className="h-3 w-3" /> Add File</button></DialogTrigger>
-                        <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
-                          <DialogHeader><DialogTitle>Add Code File</DialogTitle><DialogDescription>Add a new code file to your project</DialogDescription></DialogHeader>
-                          <div className="space-y-3">
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                              <div><label className="text-sm font-medium mb-1.5 block">File Name *</label><Input value={newFileName} onChange={(e) => setNewFileName(e.target.value)} placeholder="e.g., page.tsx" autoFocus /></div>
-                              <div><label className="text-sm font-medium mb-1.5 block">File Path *</label><Input value={newFilePath} onChange={(e) => setNewFilePath(e.target.value)} placeholder="e.g., src/app/page.tsx" /></div>
-                            </div>
-                            <div><label className="text-sm font-medium mb-1.5 block">Language</label><Input value={newFileLanguage} onChange={(e) => setNewFileLanguage(e.target.value)} placeholder="e.g., typescript" /></div>
-                            <div><label className="text-sm font-medium mb-1.5 block">Code Content *</label><Textarea value={newFileContent} onChange={(e) => setNewFileContent(e.target.value)} placeholder="Paste your code here..." rows={12} className="font-mono text-xs" /></div>
-                            <Button onClick={handleAddFile} disabled={!newFileName.trim() || !newFilePath.trim()} className="w-full"><FilePlus className="h-4 w-4 mr-2" /> Add File</Button>
-                          </div>
-                        </DialogContent>
-                      </Dialog>
-                      <Dialog open={showAddCode} onOpenChange={(open) => { setShowAddCode(open); if (!open) setAddCodeContent(''); }}>
-                        <DialogTrigger asChild><button className="flex items-center gap-1 px-2 py-1.5 rounded-md text-[10px] sm:text-xs text-muted-foreground hover:text-foreground hover:bg-muted flex-1 transition-colors border border-dashed border-border"><Pencil className="h-3 w-3" /> Paste Code</button></DialogTrigger>
-                        <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
-                          <DialogHeader><DialogTitle>Paste Code</DialogTitle><DialogDescription>Paste your code and it will be saved as a file</DialogDescription></DialogHeader>
-                          <div className="space-y-3">
-                            <p className="text-xs text-muted-foreground">Paste your code below. Add a <code className="bg-muted px-1 rounded">{'// filepath: /path/to/file.ts'}</code> comment at the top for automatic file path detection.</p>
-                            <Textarea value={addCodeContent} onChange={(e) => setAddCodeContent(e.target.value)} placeholder={`// filepath: src/app/page.tsx\n\nexport default function Page() {\n  return <div>Hello World</div>;\n}`} rows={16} className="font-mono text-xs" autoFocus />
-                            <Button onClick={handleAddCode} disabled={!addCodeContent.trim()} className="w-full"><Save className="h-4 w-4 mr-2" /> Save Code</Button>
-                          </div>
-                        </DialogContent>
-                      </Dialog>
-                    </div>
+              return (
+                <div key={project.id} className="mb-0.5">
+                  <div className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg cursor-pointer transition-colors group ${selectedProjectId === project.id ? 'bg-primary/10 text-primary' : 'hover:bg-muted'} ${isLockedByOther ? 'opacity-70' : ''}`}
+                    onClick={() => { setSelectedProjectId(project.id); setSelectedDirectChatId(null); toggleProjectExpand(project.id); closeOnMobile(); }}>
+                    {expandedProjects.has(project.id) && selectedProjectId === project.id ? <ChevronDown className="h-3.5 w-3.5 flex-shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 flex-shrink-0" />}
+                    <FolderOpen className="h-4 w-4 flex-shrink-0" />
+                    <span className="text-xs sm:text-sm font-medium truncate flex-1">{project.name}</span>
+
+                    {/* Live indicator */}
+                    {isLocked && (
+                      <Badge variant="outline" className="h-4 px-1 text-[8px] gap-0.5 border-green-500/50 text-green-600 flex-shrink-0 bg-green-500/10">
+                        <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
+                        {lockInfo.lockedBy}
+                      </Badge>
+                    )}
+
+                    {isAdmin ? (
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild><Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}><Trash2 className="h-3 w-3 text-destructive" /></Button></AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader><AlertDialogTitle>Delete Project?</AlertDialogTitle><AlertDialogDescription>This will permanently delete &quot;{project.name}&quot; and all its files and conversations.</AlertDialogDescription></AlertDialogHeader>
+                          <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => handleDeleteProject(project.id)}>Delete</AlertDialogAction></AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    ) : (
+                      <Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => { e.stopPropagation(); handleDeleteProject(project.id); }}><Trash2 className="h-3 w-3 text-destructive" /></Button>
+                    )}
                   </div>
-                )}
-              </div>
-            ))
+
+                  {expandedProjects.has(project.id) && selectedProjectId === project.id && (
+                    <div className="ml-4 mt-0.5 space-y-0.5">
+                      {currentProject?.conversations?.map((conv) => (
+                        <div key={conv.id} className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md cursor-pointer text-xs transition-colors group ${selectedConversationId === conv.id ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-muted'}`}
+                          onClick={() => { setSelectedConversationId(conv.id); closeOnMobile(); }}>
+                          <MessageSquare className="h-3 w-3 flex-shrink-0" />
+                          <span className="truncate flex-1">{conv.title}</span>
+                          {isAdmin ? (
+                            <Button variant="ghost" size="icon" className="h-5 w-5 opacity-0 group-hover:opacity-100" onClick={(e) => { e.stopPropagation(); handleDeleteConversation(conv.id); }}><X className="h-2.5 w-2.5" /></Button>
+                          ) : (
+                            <Button variant="ghost" size="icon" className="h-5 w-5 opacity-0 group-hover:opacity-100" onClick={(e) => { e.stopPropagation(); handleDeleteConversation(conv.id); }}><X className="h-2.5 w-2.5" /></Button>
+                          )}
+                        </div>
+                      ))}
+                      <button className="flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted w-full transition-colors" onClick={handleNewChat}><Plus className="h-3 w-3" /> New Chat</button>
+                      <div className="border-t my-1" />
+                      {projectFiles.map((file) => (
+                        <div key={file.id} className="flex items-center gap-1.5 px-2 py-1.5 rounded-md cursor-pointer text-xs transition-colors group hover:bg-muted" onClick={() => handleViewFile(file)}>
+                          <FileCode2 className="h-3 w-3 flex-shrink-0 text-emerald-500" />
+                          <span className="truncate flex-1 text-muted-foreground group-hover:text-foreground">{file.filePath}</span>
+                          <Badge variant="secondary" className="h-4 px-1 text-[9px]">v{file.version}</Badge>
+                          {isAdmin ? (
+                            <Button variant="ghost" size="icon" className="h-5 w-5 opacity-0 group-hover:opacity-100" onClick={(e) => { e.stopPropagation(); handleDeleteFile(file.id); }}><X className="h-2.5 w-2.5" /></Button>
+                          ) : (
+                            <Button variant="ghost" size="icon" className="h-5 w-5 opacity-0 group-hover:opacity-100" onClick={(e) => { e.stopPropagation(); handleDeleteFile(file.id); }}><X className="h-2.5 w-2.5" /></Button>
+                          )}
+                        </div>
+                      ))}
+                      <div className="flex gap-1 pt-1">
+                        <Dialog open={showNewFile} onOpenChange={(open) => { setShowNewFile(open); if (!open) { setNewFileName(''); setNewFilePath(''); setNewFileLanguage('typescript'); setNewFileContent(''); } }}>
+                          <DialogTrigger asChild><button className="flex items-center gap-1 px-2 py-1.5 rounded-md text-[10px] sm:text-xs text-muted-foreground hover:text-foreground hover:bg-muted flex-1 transition-colors border border-dashed border-border"><FilePlus className="h-3 w-3" /> Add File</button></DialogTrigger>
+                          <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
+                            <DialogHeader><DialogTitle>Add Code File</DialogTitle><DialogDescription>Add a new code file to your project</DialogDescription></DialogHeader>
+                            <div className="space-y-3">
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div><label className="text-sm font-medium mb-1.5 block">File Name *</label><Input value={newFileName} onChange={(e) => setNewFileName(e.target.value)} placeholder="e.g., page.tsx" autoFocus /></div>
+                                <div><label className="text-sm font-medium mb-1.5 block">File Path *</label><Input value={newFilePath} onChange={(e) => setNewFilePath(e.target.value)} placeholder="e.g., src/app/page.tsx" /></div>
+                              </div>
+                              <div><label className="text-sm font-medium mb-1.5 block">Language</label><Input value={newFileLanguage} onChange={(e) => setNewFileLanguage(e.target.value)} placeholder="e.g., typescript" /></div>
+                              <div><label className="text-sm font-medium mb-1.5 block">Code Content *</label><Textarea value={newFileContent} onChange={(e) => setNewFileContent(e.target.value)} placeholder="Paste your code here..." rows={12} className="font-mono text-xs" /></div>
+                              <Button onClick={handleAddFile} disabled={!newFileName.trim() || !newFilePath.trim()} className="w-full"><FilePlus className="h-4 w-4 mr-2" /> Add File</Button>
+                            </div>
+                          </DialogContent>
+                        </Dialog>
+                        <Dialog open={showAddCode} onOpenChange={(open) => { setShowAddCode(open); if (!open) setAddCodeContent(''); }}>
+                          <DialogTrigger asChild><button className="flex items-center gap-1 px-2 py-1.5 rounded-md text-[10px] sm:text-xs text-muted-foreground hover:text-foreground hover:bg-muted flex-1 transition-colors border border-dashed border-border"><Pencil className="h-3 w-3" /> Paste Code</button></DialogTrigger>
+                          <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
+                            <DialogHeader><DialogTitle>Paste Code</DialogTitle><DialogDescription>Paste your code and it will be saved as a file</DialogDescription></DialogHeader>
+                            <div className="space-y-3">
+                              <p className="text-xs text-muted-foreground">Paste your code below. Add a <code className="bg-muted px-1 rounded">{'// filepath: /path/to/file.ts'}</code> comment at the top for automatic file path detection.</p>
+                              <Textarea value={addCodeContent} onChange={(e) => setAddCodeContent(e.target.value)} placeholder={`// filepath: src/app/page.tsx\n\nexport default function Page() {\n  return <div>Hello World</div>;\n}`} rows={16} className="font-mono text-xs" autoFocus />
+                              <Button onClick={handleAddCode} disabled={!addCodeContent.trim()} className="w-full"><Save className="h-4 w-4 mr-2" /> Save Code</Button>
+                            </div>
+                          </DialogContent>
+                        </Dialog>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })
           )}
         </div>
       </ScrollArea>
@@ -551,18 +652,66 @@ export default function Home() {
   const [newFileContent, setNewFileContent] = useState('');
   const [addCodeContent, setAddCodeContent] = useState('');
 
+  // RBAC states
+  const [userRole, setUserRole] = useState<'admin' | 'employee' | null>(null);
+  const [employeeName, setEmployeeName] = useState('');
+  const [adminLoggedIn, setAdminLoggedIn] = useState(false);
+  const [showRoleSelect, setShowRoleSelect] = useState(true);
+  const [adminPassword, setAdminPassword] = useState('');
+  const [adminSetupMode, setAdminSetupMode] = useState(false);
+  const [adminSetupPassword, setAdminSetupPassword] = useState('');
+  const [adminSetupEmail, setAdminSetupEmail] = useState('');
+  const [deleteRequests, setDeleteRequests] = useState<DeleteRequest[]>([]);
+  const [projectLocks, setProjectLocks] = useState<Record<string, { lockedBy: string; lockedAt: string }>>({});
+  const [showDeleteRequests, setShowDeleteRequests] = useState(false);
+  const [showChangePassword, setShowChangePassword] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [lockedProjectId, setLockedProjectId] = useState<string | null>(null);
+  const [deleteReasonDialog, setDeleteReasonDialog] = useState<{ open: boolean; type: string; targetId: string; targetName: string } | null>(null);
+  const [deleteReason, setDeleteReason] = useState('');
+  const [roleLoading, setRoleLoading] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Extract code blocks from all messages for the Code Panel
   const allCodeBlocks = extractCodeBlocksFromMessages(messages);
 
+  // Mark as mounted
+  useEffect(() => { setMounted(true); }, []);
+
+  // Load role from localStorage on mount
+  useEffect(() => {
+    if (!mounted) return;
+    const savedRole = localStorage.getItem('trishul_role');
+    const savedName = localStorage.getItem('trishul_employee_name');
+    const savedAdmin = localStorage.getItem('trishul_admin_logged_in');
+    if (savedRole === 'admin' && savedAdmin === 'true') {
+      setUserRole('admin');
+      setAdminLoggedIn(true);
+      setShowRoleSelect(false);
+    } else if (savedRole === 'employee' && savedName) {
+      setUserRole('employee');
+      setEmployeeName(savedName);
+      setShowRoleSelect(false);
+    }
+  }, [mounted]);
+
+  // Check if admin exists on mount
+  useEffect(() => {
+    if (!mounted) return;
+    fetch('/api/admin/check').then(r => r.json()).then(data => {
+      if (!data.exists) setAdminSetupMode(true);
+    }).catch(() => {});
+  }, [mounted]);
+
   // Detect user scroll
   const handleChatScroll = useCallback(() => {
     const el = chatScrollRef.current;
     if (!el) return;
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    // If user is more than 150px from bottom, they've scrolled up
     setUserScrolledUp(distanceFromBottom > 150);
   }, []);
 
@@ -579,6 +728,33 @@ export default function Home() {
     setCodePanelTab('current');
     setCodePanelOpen(true);
   }, []);
+
+  // Fetch project locks
+  const fetchProjectLocks = useCallback(async () => {
+    try {
+      const res = await fetch('/api/locks');
+      if (res.ok) {
+        const locks = await res.json();
+        const lockMap: Record<string, { lockedBy: string; lockedAt: string }> = {};
+        locks.forEach((l: { projectId: string; lockedBy: string; lockedAt: string }) => {
+          lockMap[l.projectId] = { lockedBy: l.lockedBy, lockedAt: l.lockedAt };
+        });
+        setProjectLocks(lockMap);
+      }
+    } catch (e) { console.error('Failed to fetch locks:', e); }
+  }, []);
+
+  // Fetch delete requests (for admin)
+  const fetchDeleteRequests = useCallback(async () => {
+    if (userRole !== 'admin') return;
+    try {
+      const res = await fetch('/api/delete-requests?status=pending');
+      if (res.ok) {
+        const data = await res.json();
+        setDeleteRequests(data);
+      }
+    } catch (e) { console.error('Failed to fetch delete requests:', e); }
+  }, [userRole]);
 
   // Fetch projects
   const fetchProjects = useCallback(async () => {
@@ -624,8 +800,15 @@ export default function Home() {
     } catch (error) { console.error('Failed to fetch direct chat messages:', error); }
   }, [selectedDirectChatId]);
 
-  // Initial load
-  useEffect(() => { fetchProjects(); fetchDirectChats(); }, [fetchProjects, fetchDirectChats]);
+  // Initial load - only when role is set
+  useEffect(() => {
+    if (userRole) { fetchProjects(); fetchDirectChats(); fetchProjectLocks(); }
+  }, [fetchProjects, fetchDirectChats, fetchProjectLocks, userRole]);
+
+  // Fetch delete requests when admin logs in
+  useEffect(() => {
+    if (userRole === 'admin') { fetchDeleteRequests(); }
+  }, [fetchDeleteRequests, userRole]);
 
   // Reload project details when project changes
   useEffect(() => { fetchProjectDetails(); }, [fetchProjectDetails]);
@@ -640,6 +823,102 @@ export default function Home() {
   // Reset scroll state when conversation changes
   useEffect(() => { setUserScrolledUp(false); }, [selectedConversationId, selectedDirectChatId]);
 
+  // Periodically refresh locks and delete requests
+  useEffect(() => {
+    if (!userRole) return;
+    const interval = setInterval(() => {
+      fetchProjectLocks();
+      if (userRole === 'admin') fetchDeleteRequests();
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [fetchProjectLocks, fetchDeleteRequests, userRole]);
+
+  // Handle employee project selection with locking
+  const handleEmployeeSelectProject = useCallback(async (projectId: string) => {
+    if (userRole !== 'employee') return;
+    try {
+      const res = await fetch(`/api/projects/${projectId}/lock`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lockedBy: employeeName }),
+      });
+      if (res.ok) {
+        setLockedProjectId(projectId);
+      } else if (res.status === 409) {
+        const data = await res.json();
+        toast({ title: 'Project Locked', description: data.error || 'Project is currently being used by someone else', variant: 'destructive' });
+        return; // Don't proceed
+      } else {
+        toast({ title: 'Error', description: 'Failed to lock project', variant: 'destructive' });
+        return;
+      }
+    } catch {
+      toast({ title: 'Error', description: 'Failed to lock project', variant: 'destructive' });
+      return;
+    }
+  }, [userRole, employeeName, toast]);
+
+  // Override project selection for employees - inject lock logic
+  const wrappedSetSelectedProjectId = useCallback((id: string | null) => {
+    if (userRole === 'employee' && id) {
+      // Check if locked by someone else
+      const lockInfo = projectLocks[id];
+      if (lockInfo && lockInfo.lockedBy !== employeeName) {
+        toast({ title: 'Project Locked', description: `Project is currently being used by ${lockInfo.lockedBy}`, variant: 'destructive' });
+        return;
+      }
+      // If not locked by me, try to lock
+      if (!lockInfo) {
+        handleEmployeeSelectProject(id).then(() => {
+          setSelectedProjectId(id);
+        });
+        return;
+      }
+      // Already locked by me
+      setSelectedProjectId(id);
+    } else {
+      setSelectedProjectId(id);
+    }
+  }, [userRole, projectLocks, employeeName, handleEmployeeSelectProject, setSelectedProjectId, toast]);
+
+  // End & Save - unlock project and clear selection
+  const handleEndAndSave = useCallback(async () => {
+    if (!lockedProjectId || userRole !== 'employee') return;
+    try {
+      await fetch(`/api/projects/${lockedProjectId}/unlock`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lockedBy: employeeName }),
+      });
+      setLockedProjectId(null);
+      setSelectedProjectId(null);
+      setSelectedConversationId(null);
+      setMessages([]);
+      fetchProjectLocks();
+      toast({ title: 'Project Saved', description: 'Your session has ended and the project is now available for others.' });
+    } catch {
+      toast({ title: 'Error', description: 'Failed to unlock project', variant: 'destructive' });
+    }
+  }, [lockedProjectId, userRole, employeeName, setSelectedProjectId, setSelectedConversationId, fetchProjectLocks, toast]);
+
+  // Submit delete request (for employees)
+  const submitDeleteRequest = useCallback(async (type: string, targetId: string, targetName: string, reason: string) => {
+    try {
+      const res = await fetch('/api/delete-requests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type, targetId, targetName, requestedBy: employeeName, reason }),
+      });
+      if (res.ok) {
+        toast({ title: 'Request Sent', description: 'Delete request sent to administrator for approval' });
+      } else {
+        toast({ title: 'Error', description: 'Failed to submit delete request', variant: 'destructive' });
+      }
+    } catch {
+      toast({ title: 'Error', description: 'Failed to submit delete request', variant: 'destructive' });
+    }
+  }, [employeeName, toast]);
+
   // Create project
   const handleCreateProject = async () => {
     if (!newProjectName.trim()) return;
@@ -649,18 +928,25 @@ export default function Home() {
       const project = await res.json();
       toast({ title: 'Project created!', description: newProjectName });
       setShowNewProject(false); setNewProjectName(''); setNewProjectDesc(''); setNewProjectTech('');
-      setSelectedProjectId(project.id); setSelectedDirectChatId(null);
+      wrappedSetSelectedProjectId(project.id); setSelectedDirectChatId(null);
       setExpandedProjects(prev => new Set(prev).add(project.id));
       fetchProjects();
     } catch (err) { toast({ title: 'Error', description: err instanceof Error ? err.message : 'Failed to create project', variant: 'destructive' }); }
   };
 
   const handleDeleteProject = async (id: string) => {
+    // Employee: submit delete request
+    if (userRole === 'employee') {
+      const project = projects.find(p => p.id === id);
+      setDeleteReasonDialog({ open: true, type: 'project', targetId: id, targetName: project?.name || 'Unknown Project' });
+      return;
+    }
+    // Admin: direct delete
     try {
       const res = await fetch(`/api/projects/${id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('Failed to delete');
       if (selectedProjectId === id) setSelectedProjectId(null);
-      fetchProjects(); toast({ title: 'Project deleted' });
+      fetchProjects(); fetchProjectLocks(); toast({ title: 'Project deleted' });
     } catch { toast({ title: 'Error', description: 'Failed to delete project', variant: 'destructive' }); }
   };
 
@@ -677,6 +963,13 @@ export default function Home() {
 
   const handleDeleteFile = async (fileId: string) => {
     if (!selectedProjectId) return;
+    // Employee: submit delete request
+    if (userRole === 'employee') {
+      const file = projectFiles.find(f => f.id === fileId);
+      setDeleteReasonDialog({ open: true, type: 'file', targetId: fileId, targetName: file?.filePath || 'Unknown File' });
+      return;
+    }
+    // Admin: direct delete
     try {
       const res = await fetch(`/api/projects/${selectedProjectId}/files/${fileId}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('Failed to delete');
@@ -700,6 +993,13 @@ export default function Home() {
   };
 
   const handleDeleteConversation = async (id: string) => {
+    // Employee: submit delete request
+    if (userRole === 'employee') {
+      const conv = currentProject?.conversations?.find(c => c.id === id);
+      setDeleteReasonDialog({ open: true, type: 'conversation', targetId: id, targetName: conv?.title || 'Unknown Chat' });
+      return;
+    }
+    // Admin: direct delete
     try {
       const res = await fetch(`/api/conversations/${id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('Failed to delete');
@@ -709,12 +1009,194 @@ export default function Home() {
   };
 
   const handleDeleteDirectChat = async (id: string) => {
+    // Employee: submit delete request
+    if (userRole === 'employee') {
+      const conv = directChats.find(c => c.id === id);
+      setDeleteReasonDialog({ open: true, type: 'directChat', targetId: id, targetName: conv?.title || 'Unknown Chat' });
+      return;
+    }
+    // Admin: direct delete
     try {
       const res = await fetch(`/api/conversations/${id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('Failed to delete');
       if (selectedDirectChatId === id) { setSelectedDirectChatId(null); setMessages([]); }
       fetchDirectChats(); toast({ title: 'Direct chat deleted' });
     } catch { toast({ title: 'Error', description: 'Failed to delete chat', variant: 'destructive' }); }
+  };
+
+  // Submit delete request handler
+  const handleSubmitDeleteRequest = async () => {
+    if (!deleteReasonDialog) return;
+    await submitDeleteRequest(deleteReasonDialog.type, deleteReasonDialog.targetId, deleteReasonDialog.targetName, deleteReason);
+    setDeleteReasonDialog(null);
+    setDeleteReason('');
+  };
+
+  // Admin: Approve delete request
+  const handleApproveDeleteRequest = async (id: string) => {
+    try {
+      const res = await fetch(`/api/delete-requests/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'approve', reviewedBy: 'admin' }),
+      });
+      if (res.ok) {
+        toast({ title: 'Request Approved', description: 'Item has been deleted' });
+        fetchDeleteRequests(); fetchProjects(); fetchDirectChats(); fetchProjectLocks();
+        if (selectedProjectId) fetchProjectDetails();
+      } else {
+        toast({ title: 'Error', description: 'Failed to approve request', variant: 'destructive' });
+      }
+    } catch {
+      toast({ title: 'Error', description: 'Failed to approve request', variant: 'destructive' });
+    }
+  };
+
+  // Admin: Reject delete request
+  const handleRejectDeleteRequest = async (id: string) => {
+    try {
+      const res = await fetch(`/api/delete-requests/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reject', reviewedBy: 'admin' }),
+      });
+      if (res.ok) {
+        toast({ title: 'Request Rejected' });
+        fetchDeleteRequests();
+      } else {
+        toast({ title: 'Error', description: 'Failed to reject request', variant: 'destructive' });
+      }
+    } catch {
+      toast({ title: 'Error', description: 'Failed to reject request', variant: 'destructive' });
+    }
+  };
+
+  // Admin: Change password
+  const handleChangePassword = async () => {
+    try {
+      const res = await fetch('/api/admin/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      if (res.ok) {
+        toast({ title: 'Password Changed', description: 'Your password has been updated' });
+        setShowChangePassword(false); setCurrentPassword(''); setNewPassword('');
+      } else {
+        const data = await res.json();
+        toast({ title: 'Error', description: data.error || 'Failed to change password', variant: 'destructive' });
+      }
+    } catch {
+      toast({ title: 'Error', description: 'Failed to change password', variant: 'destructive' });
+    }
+  };
+
+  // Logout
+  const handleLogout = useCallback(() => {
+    // If employee has a locked project, unlock it
+    if (userRole === 'employee' && lockedProjectId) {
+      fetch(`/api/projects/${lockedProjectId}/unlock`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lockedBy: employeeName }),
+      }).catch(() => {});
+      setLockedProjectId(null);
+    }
+    localStorage.removeItem('trishul_role');
+    localStorage.removeItem('trishul_employee_name');
+    localStorage.removeItem('trishul_admin_logged_in');
+    setUserRole(null);
+    setEmployeeName('');
+    setAdminLoggedIn(false);
+    setShowRoleSelect(true);
+    setAdminPassword('');
+    setSelectedProjectId(null);
+    setSelectedConversationId(null);
+    setSelectedDirectChatId(null);
+    setMessages([]);
+    setCurrentProject(null);
+    setCurrentConversation(null);
+    toast({ title: 'Logged Out' });
+  }, [userRole, lockedProjectId, employeeName, setSelectedProjectId, setSelectedConversationId, toast]);
+
+  // Employee login
+  const handleEmployeeLogin = () => {
+    if (!employeeName.trim()) {
+      toast({ title: 'Name Required', description: 'Please enter your name to continue', variant: 'destructive' });
+      return;
+    }
+    localStorage.setItem('trishul_role', 'employee');
+    localStorage.setItem('trishul_employee_name', employeeName.trim());
+    setUserRole('employee');
+    setEmployeeName(employeeName.trim());
+    setShowRoleSelect(false);
+    toast({ title: 'Welcome!', description: `Hello, ${employeeName.trim()}` });
+  };
+
+  // Admin login
+  const handleAdminLogin = async () => {
+    if (!adminPassword.trim()) {
+      toast({ title: 'Password Required', description: 'Please enter the admin password', variant: 'destructive' });
+      return;
+    }
+    setRoleLoading(true);
+    try {
+      const res = await fetch('/api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: adminPassword }),
+      });
+      if (res.ok) {
+        localStorage.setItem('trishul_role', 'admin');
+        localStorage.setItem('trishul_admin_logged_in', 'true');
+        setUserRole('admin');
+        setAdminLoggedIn(true);
+        setShowRoleSelect(false);
+        setAdminPassword('');
+        toast({ title: 'Welcome, Admin!' });
+      } else {
+        const data = await res.json();
+        toast({ title: 'Login Failed', description: data.error || 'Invalid password', variant: 'destructive' });
+      }
+    } catch {
+      toast({ title: 'Error', description: 'Failed to login', variant: 'destructive' });
+    } finally {
+      setRoleLoading(false);
+    }
+  };
+
+  // Admin setup
+  const handleAdminSetup = async () => {
+    if (!adminSetupPassword.trim() || !adminSetupEmail.trim()) {
+      toast({ title: 'Required', description: 'Please fill in all fields', variant: 'destructive' });
+      return;
+    }
+    setRoleLoading(true);
+    try {
+      const res = await fetch('/api/admin/setup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: adminSetupEmail.trim(), password: adminSetupPassword.trim() }),
+      });
+      if (res.ok) {
+        localStorage.setItem('trishul_role', 'admin');
+        localStorage.setItem('trishul_admin_logged_in', 'true');
+        setUserRole('admin');
+        setAdminLoggedIn(true);
+        setShowRoleSelect(false);
+        setAdminSetupMode(false);
+        setAdminSetupPassword('');
+        setAdminSetupEmail('');
+        toast({ title: 'Admin Created!', description: 'Your admin account has been set up' });
+      } else {
+        const data = await res.json();
+        toast({ title: 'Setup Failed', description: data.error || 'Failed to create admin', variant: 'destructive' });
+      }
+    } catch {
+      toast({ title: 'Error', description: 'Failed to setup admin', variant: 'destructive' });
+    } finally {
+      setRoleLoading(false);
+    }
   };
 
   // Send message
@@ -764,13 +1246,117 @@ export default function Home() {
     selectedDirectChatId, expandedProjects, showNewProject, setShowNewProject, newProjectName,
     setNewProjectName, newProjectDesc, setNewProjectDesc, newProjectTech, setNewProjectTech,
     handleCreateProject, handleDeleteProject, handleDeleteConversation, handleDeleteDirectChat,
-    setSelectedProjectId, setSelectedConversationId, setSelectedDirectChatId, toggleProjectExpand,
-    handleNewChat, handleNewDirectChat, showNewFile, setShowNewFile, showAddCode, setShowAddCode,
-    newFileName, setNewFileName, newFilePath, setNewFilePath, newFileLanguage, setNewFileLanguage,
-    newFileContent, setNewFileContent, addCodeContent, setAddCodeContent, handleAddFile,
-    handleAddCode, handleDeleteFile, handleViewFile, onCloseMobile: () => setMobileSheetOpen(false),
+    setSelectedProjectId: wrappedSetSelectedProjectId, setSelectedConversationId, setSelectedDirectChatId,
+    toggleProjectExpand, handleNewChat, handleNewDirectChat, showNewFile, setShowNewFile,
+    showAddCode, setShowAddCode, newFileName, setNewFileName, newFilePath, setNewFilePath,
+    newFileLanguage, setNewFileLanguage, newFileContent, setNewFileContent, addCodeContent,
+    setAddCodeContent, handleAddFile, handleAddCode, handleDeleteFile, handleViewFile,
+    onCloseMobile: () => setMobileSheetOpen(false),
+    userRole, employeeName, projectLocks, deleteRequestsCount: deleteRequests.length,
+    showDeleteRequests, setShowDeleteRequests, showChangePassword, setShowChangePassword,
+    handleLogout, handleEndAndSave, lockedProjectId,
   };
 
+  // ==================== LOADING SCREEN (SSR) ====================
+  if (!mounted) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center">
+          <img src="/trishul-logo.png" alt="Trishul AI Helper" className="h-14 sm:h-16 w-auto object-contain mx-auto mb-4" />
+          <Loader2 className="h-6 w-6 animate-spin mx-auto text-primary" />
+        </div>
+      </div>
+    );
+  }
+
+  // ==================== ROLE SELECTION SCREEN ====================
+  if (showRoleSelect) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background p-4">
+        <div className="w-full max-w-md">
+          <div className="text-center mb-8">
+            <img src="/trishul-logo.png" alt="Trishul AI Helper" className="h-14 sm:h-16 w-auto object-contain mx-auto mb-4" />
+            <h1 className="text-2xl sm:text-3xl font-bold mb-2">Trishul AI Helper</h1>
+            <p className="text-sm text-muted-foreground">Your AI-powered Code Knowledge Base</p>
+          </div>
+
+          {/* Admin Setup Mode */}
+          {adminSetupMode && (
+            <div className="rounded-xl border p-6 mb-4">
+              <div className="flex items-center gap-2 mb-4">
+                <Shield className="h-5 w-5 text-amber-500" />
+                <h2 className="text-lg font-semibold">Setup Administrator</h2>
+              </div>
+              <p className="text-xs text-muted-foreground mb-4">No admin account exists yet. Create one to get started.</p>
+              <div className="space-y-3">
+                <div>
+                  <label className="text-sm font-medium mb-1.5 block">Admin Email *</label>
+                  <Input value={adminSetupEmail} onChange={(e) => setAdminSetupEmail(e.target.value)} placeholder="admin@example.com" type="email" />
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-1.5 block">Password *</label>
+                  <Input value={adminSetupPassword} onChange={(e) => setAdminSetupPassword(e.target.value)} placeholder="Create a strong password" type="password" onKeyDown={(e) => e.key === 'Enter' && handleAdminSetup()} />
+                </div>
+                <Button onClick={handleAdminSetup} disabled={roleLoading || !adminSetupEmail.trim() || !adminSetupPassword.trim()} className="w-full">
+                  {roleLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Shield className="h-4 w-4 mr-2" />}
+                  Create Admin Account
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Role Selection Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Employee Card */}
+            <div className="rounded-xl border p-5 hover:border-emerald-500/50 hover:bg-emerald-500/5 transition-colors">
+              <div className="flex items-center gap-2 mb-3">
+                <User className="h-5 w-5 text-emerald-500" />
+                <h2 className="text-base font-semibold">Employee</h2>
+              </div>
+              <p className="text-xs text-muted-foreground mb-4">Create projects, chat with AI, and manage code files.</p>
+              <div className="space-y-2">
+                <Input
+                  value={employeeName}
+                  onChange={(e) => setEmployeeName(e.target.value)}
+                  placeholder="Enter your name"
+                  onKeyDown={(e) => e.key === 'Enter' && handleEmployeeLogin()}
+                />
+                <Button onClick={handleEmployeeLogin} disabled={!employeeName.trim()} className="w-full" variant="default">
+                  Continue
+                </Button>
+              </div>
+            </div>
+
+            {/* Admin Card */}
+            <div className="rounded-xl border p-5 hover:border-amber-500/50 hover:bg-amber-500/5 transition-colors">
+              <div className="flex items-center gap-2 mb-3">
+                <Shield className="h-5 w-5 text-amber-500" />
+                <h2 className="text-base font-semibold">Administrator</h2>
+              </div>
+              <p className="text-xs text-muted-foreground mb-4">Full access: delete directly, approve requests, manage users.</p>
+              {!adminSetupMode && (
+                <div className="space-y-2">
+                  <Input
+                    value={adminPassword}
+                    onChange={(e) => setAdminPassword(e.target.value)}
+                    placeholder="Enter admin password"
+                    type="password"
+                    onKeyDown={(e) => e.key === 'Enter' && handleAdminLogin()}
+                  />
+                  <Button onClick={handleAdminLogin} disabled={roleLoading || !adminPassword.trim()} className="w-full" variant="outline">
+                    {roleLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Lock className="h-4 w-4 mr-2" />}
+                    Login as Admin
+                  </Button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ==================== MAIN APP ====================
   return (
     <TooltipProvider>
       <div className="h-screen flex bg-background overflow-hidden">
@@ -804,6 +1390,17 @@ export default function Home() {
                   <span className="text-xs sm:text-sm font-medium truncate">{currentProject.name}</span>
                   {currentProject.techStack && <Badge variant="secondary" className="text-[9px] sm:text-[10px] flex-shrink-0 hidden sm:flex">{currentProject.techStack}</Badge>}
                   <span className="text-[10px] sm:text-xs text-muted-foreground flex-shrink-0">• {projectFiles.length} files</span>
+                  {/* Live indicator in top bar for locked project */}
+                  {lockedProjectId === selectedProjectId && userRole === 'employee' && (
+                    <Badge variant="outline" className="text-[9px] gap-1 border-emerald-500/50 text-emerald-600 bg-emerald-500/10 flex-shrink-0">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" /> LIVE
+                    </Badge>
+                  )}
+                  {projectLocks[selectedProjectId] && userRole === 'admin' && (
+                    <Badge variant="outline" className="text-[9px] gap-1 border-green-500/50 text-green-600 bg-green-500/10 flex-shrink-0">
+                      <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" /> {projectLocks[selectedProjectId].lockedBy}
+                    </Badge>
+                  )}
                 </>
               ) : (
                 <div className="flex items-center gap-1.5">
@@ -812,6 +1409,13 @@ export default function Home() {
                 </div>
               )}
             </div>
+
+            {/* End & Save button in top bar for employees */}
+            {userRole === 'employee' && lockedProjectId && selectedProjectId === lockedProjectId && (
+              <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5 border-emerald-500/50 text-emerald-600 hover:bg-emerald-500/10" onClick={handleEndAndSave}>
+                <Unlock className="h-3 w-3" /> <span className="hidden sm:inline">End & Save</span>
+              </Button>
+            )}
 
             {/* Code Panel Toggle */}
             {hasActiveChat && allCodeBlocks.length > 0 && (
@@ -1159,6 +1763,7 @@ export default function Home() {
           </Dialog>
         )}
       </div>
+
       {/* Create Project Dialog - rendered at top level so it works from anywhere */}
       <Dialog open={showNewProject} onOpenChange={setShowNewProject}>
         <DialogContent className="sm:max-w-md">
@@ -1168,6 +1773,101 @@ export default function Home() {
             <div><label className="text-sm font-medium mb-1.5 block">Description</label><Textarea value={newProjectDesc} onChange={(e) => setNewProjectDesc(e.target.value)} placeholder="What is this project about?" rows={2} /></div>
             <div><label className="text-sm font-medium mb-1.5 block">Tech Stack</label><Input value={newProjectTech} onChange={(e) => setNewProjectTech(e.target.value)} placeholder="e.g., Next.js, TypeScript, Prisma" /></div>
             <Button onClick={handleCreateProject} disabled={!newProjectName.trim()} className="w-full"><FolderPlus className="h-4 w-4 mr-2" /> Create Project</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Reason Dialog (for employees) */}
+      <Dialog open={!!deleteReasonDialog} onOpenChange={(open) => { if (!open) { setDeleteReasonDialog(null); setDeleteReason(''); } }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Request Deletion</DialogTitle>
+            <DialogDescription>
+              You need admin approval to delete items. Please provide a reason.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="rounded-lg border p-3 bg-muted/50">
+              <p className="text-xs text-muted-foreground">Item: <span className="font-medium text-foreground">{deleteReasonDialog?.targetName}</span></p>
+              <p className="text-xs text-muted-foreground">Type: <span className="font-medium text-foreground capitalize">{deleteReasonDialog?.type}</span></p>
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Reason for deletion *</label>
+              <Textarea value={deleteReason} onChange={(e) => setDeleteReason(e.target.value)} placeholder="Why do you want to delete this?" rows={3} autoFocus />
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => { setDeleteReasonDialog(null); setDeleteReason(''); }}>Cancel</Button>
+              <Button onClick={handleSubmitDeleteRequest} disabled={!deleteReason.trim()}>
+                <Send className="h-4 w-4 mr-2" /> Submit Request
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Requests Dialog (for admin) */}
+      <Dialog open={showDeleteRequests} onOpenChange={setShowDeleteRequests}>
+        <DialogContent className="sm:max-w-lg max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Delete Requests</DialogTitle>
+            <DialogDescription>Review and approve or reject deletion requests from employees</DialogDescription>
+          </DialogHeader>
+          {deleteRequests.length === 0 ? (
+            <div className="py-8 text-center text-muted-foreground">
+              <ClipboardList className="h-8 w-8 mx-auto mb-2 opacity-30" />
+              <p className="text-sm">No pending delete requests</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {deleteRequests.map((req) => (
+                <div key={req.id} className="rounded-lg border p-3 space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-medium">{req.targetName}</p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <Badge variant="secondary" className="text-[9px] capitalize">{req.type}</Badge>
+                        <span className="text-[10px] text-muted-foreground">by {req.requestedBy}</span>
+                        <span className="text-[10px] text-muted-foreground">• {new Date(req.createdAt).toLocaleString()}</span>
+                      </div>
+                    </div>
+                  </div>
+                  {req.reason && (
+                    <p className="text-xs text-muted-foreground bg-muted/50 rounded px-2 py-1">&quot;{req.reason}&quot;</p>
+                  )}
+                  <div className="flex gap-2 justify-end">
+                    <Button size="sm" variant="outline" className="h-7 text-xs gap-1 text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => handleRejectDeleteRequest(req.id)}>
+                      <XCircle className="h-3 w-3" /> Reject
+                    </Button>
+                    <Button size="sm" variant="default" className="h-7 text-xs gap-1" onClick={() => handleApproveDeleteRequest(req.id)}>
+                      <CheckCircle2 className="h-3 w-3" /> Approve
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Change Password Dialog (for admin) */}
+      <Dialog open={showChangePassword} onOpenChange={(open) => { setShowChangePassword(open); if (!open) { setCurrentPassword(''); setNewPassword(''); } }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Change Password</DialogTitle>
+            <DialogDescription>Update your admin password</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Current Password *</label>
+              <Input value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} type="password" placeholder="Enter current password" />
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">New Password *</label>
+              <Input value={newPassword} onChange={(e) => setNewPassword(e.target.value)} type="password" placeholder="Enter new password" />
+            </div>
+            <Button onClick={handleChangePassword} disabled={!currentPassword.trim() || !newPassword.trim()} className="w-full">
+              <KeyRound className="h-4 w-4 mr-2" /> Change Password
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
