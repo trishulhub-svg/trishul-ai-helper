@@ -1,10 +1,20 @@
 import { db } from '@/lib/db';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    const mode = req.nextUrl.searchParams.get('mode');
+
+    let whereClause: any = {};
+    if (mode) {
+      whereClause.mode = mode;
+    } else {
+      // Default: return both direct and business chats (non-project)
+      whereClause.mode = { in: ['direct', 'business'] };
+    }
+
     const conversations = await db.conversation.findMany({
-      where: { mode: 'direct' },
+      where: whereClause,
       orderBy: { updatedAt: 'desc' },
       include: {
         _count: { select: { messages: true } },

@@ -7,7 +7,7 @@ export async function POST(
 ) {
   try {
     const { id } = await params;
-    const body = await req.json();
+    const body = await req.json().catch(() => ({}));
     const { performedBy } = body;
 
     // Verify the assignment exists

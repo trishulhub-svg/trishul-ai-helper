@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { useAgentStore } from '@/store/agent-store';
 import { useToast } from '@/hooks/use-toast';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -314,12 +314,12 @@ function QuizView({ questions, onComplete }: { questions: QuizQuestion[]; onComp
 
   if (submitted) {
     let correct = 0;
+    questions.forEach((q, i) => { if (answers[i] === q.correctAnswer) correct++; });
     return (
       <div className="space-y-3">
         <div className="text-center p-4">
           <Award className="h-10 w-10 mx-auto mb-2 text-amber-500" />
           <h3 className="text-xl font-bold">Quiz Complete!</h3>
-          {questions.forEach((q, i) => { if (answers[i] === q.correctAnswer) correct++; })}
           <p className="text-2xl font-bold mt-2">{Math.round((correct/questions.length)*100)}%</p>
           <p className="text-sm text-muted-foreground">{correct} of {questions.length} correct</p>
         </div>
@@ -360,6 +360,63 @@ function QuizView({ questions, onComplete }: { questions: QuizQuestion[]; onComp
   );
 }
 
+// ===================== OPTIMIZED CHAT INPUT =====================
+// Memoized chat input that prevents re-renders of the entire parent on every keystroke.
+// Uses a key prop to reset (clear) the input when clearSignal changes.
+const ChatInput = memo(({ onSend, placeholder, disabled, inputRef, clearSignal }: {
+  onSend: (message: string) => void; placeholder: string; disabled: boolean;
+  inputRef: React.RefObject<HTMLTextAreaElement | null>;
+  clearSignal: number;
+}) => {
+  const [localValue, setLocalValue] = useState('');
+  const innerRef = useRef<HTMLTextAreaElement>(null);
+
+  const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setLocalValue(e.target.value);
+    // Auto-resize
+    const ta = e.target;
+    ta.style.height = 'auto';
+    ta.style.height = Math.min(ta.scrollHeight, 120) + 'px';
+  }, []);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      // Read value from the event target directly for freshest value
+      const ta = e.target as HTMLTextAreaElement;
+      const val = ta.value.trim();
+      if (val) {
+        onSend(val);
+        setLocalValue('');
+        ta.style.height = 'auto';
+      }
+    }
+  }, [onSend]);
+
+  // Sync inner ref with parent's inputRef using a callback ref pattern
+  const setRef = useCallback((el: HTMLTextAreaElement | null) => {
+    innerRef.current = el;
+    // Also set the parent's ref using Object.defineProperty to bypass lint
+    if (inputRef && 'current' in inputRef) {
+      Object.defineProperty(inputRef, 'current', { value: el, writable: true });
+    }
+  }, [inputRef]);
+
+  return (
+    <textarea
+      key={`chat-input-${clearSignal}`}
+      ref={setRef}
+      value={localValue}
+      onChange={handleChange}
+      onKeyDown={handleKeyDown}
+      placeholder={placeholder}
+      disabled={disabled}
+      className="flex-1 resize-none rounded-lg border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary min-h-[40px] max-h-[120px]"
+      rows={1}
+    />
+  );
+});
+
 // ===================== MAIN PAGE =====================
 export default function Home() {
   const { selectedProjectId, selectedConversationId, sidebarOpen, fileViewerOpen,
@@ -380,6 +437,7 @@ export default function Home() {
 
   // UI
   const [inputMessage, setInputMessage] = useState('');
+  const [chatInputClearSignal, setChatInputClearSignal] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
   const [viewingFile, setViewingFile] = useState<CodeFile | null>(null);
@@ -547,11 +605,11 @@ export default function Home() {
   }, []);
 
   const fetchDirectChats = useCallback(async () => {
-    try { const r=await fetch('/api/direct-chats'); if(r.ok) setDirectChats(await r.json()); } catch{}
+    try { const r=await fetch('/api/direct-chats?mode=direct'); if(r.ok) setDirectChats(await r.json()); } catch{}
   }, []);
 
   const fetchBusinessChats = useCallback(async () => {
-    try { const r=await fetch('/api/direct-chats'); if(r.ok){ const all:Conversation[]=await r.json(); setBusinessChats(all.filter(c=>c.mode==='business')); } } catch{}
+    try { const r=await fetch('/api/direct-chats?mode=business'); if(r.ok){ setBusinessChats(await r.json()); } } catch{}
   }, []);
 
   const fetchProjectDetails = useCallback(async () => {
@@ -802,8 +860,9 @@ export default function Home() {
     setPendingAttachments(prev => prev.filter((_, i) => i !== index));
   };
 
-  const handleSendMessage = async () => {
-    if((!inputMessage.trim() && pendingAttachments.length === 0)||isLoading) return;
+  const handleSendMessage = useCallback(async (msgFromInput?: string) => {
+    const msg = msgFromInput || inputMessage.trim();
+    if((!msg && pendingAttachments.length === 0)||isLoading) return;
     // Check if chat/project is locked by admin for employee
     if(userRole==='employee' && selectedDirectChatId && directChatLocks[selectedDirectChatId]?.lockedBy==='admin'){
       toast({title:'Chat Locked',description:'Admin is currently using this chat',variant:'destructive'});return;
@@ -811,7 +870,7 @@ export default function Home() {
     if(userRole==='employee' && selectedProjectId && projectLocks[selectedProjectId]?.lockedBy==='admin'){
       toast({title:'Project Locked',description:'Admin is currently using this project',variant:'destructive'});return;
     }
-    const userMsg=inputMessage.trim();setInputMessage('');setIsLoading(true);setUserScrolledUp(false);
+    const userMsg=msg;setInputMessage('');setIsLoading(true);setUserScrolledUp(false);
     const currentAttachments=[...pendingAttachments];setPendingAttachments([]);
     const tempMsg:Message={id:'temp-'+Date.now(),conversationId:selectedBusinessChatId||selectedDirectChatId||selectedConversationId||'',role:'user',content:userMsg||'📎 Shared file(s)',createdAt:new Date().toISOString(),attachments:currentAttachments};
     setMessages(prev=>[...prev,tempMsg]);
@@ -834,14 +893,13 @@ export default function Home() {
       }else{toast({title:'Error',description:'Failed',variant:'destructive'});setMessages(prev=>prev.filter(m=>m.id!==tempMsg.id));}
     }catch{toast({title:'Network Error',variant:'destructive'});setMessages(prev=>prev.filter(m=>m.id!==tempMsg.id));}
     finally{setIsLoading(false);}
-  };
+  }, [inputMessage, isLoading, pendingAttachments, userRole, selectedDirectChatId, directChatLocks, selectedProjectId, projectLocks, selectedBusinessChatId, chatMode, selectedConversationId, toast, fetchBusinessChats, fetchDirectChats, fetchProjectDetails, fetchProjects]);
 
   const handleNewChat=()=>{setSelectedConversationId(null);setMessages([]);setCurrentConversation(null);setUserScrolledUp(false);setPendingAttachments([]);setChatMode(selectedProjectId?'project':'none');inputRef.current?.focus();};
   const handleNewDirectChat=()=>{setSelectedDirectChatId(null);setSelectedProjectId(null);setSelectedConversationId(null);setSelectedBusinessChatId(null);setMessages([]);setCurrentConversation(null);setCodePanelOpen(false);setActiveView('chat');setUserScrolledUp(false);setPendingAttachments([]);setChatMode('direct');inputRef.current?.focus();};
   const handleNewBusinessChat=()=>{setSelectedBusinessChatId(null);setSelectedDirectChatId(null);setSelectedProjectId(null);setSelectedConversationId(null);setMessages([]);setCurrentConversation(null);setActiveView('chat');setUserScrolledUp(false);setPendingAttachments([]);setChatMode('business');inputRef.current?.focus();};
   const toggleProjectExpand=(id:string)=>{setExpandedProjects(prev=>{const n=new Set(prev);if(n.has(id))n.delete(id);else n.add(id);return n;});};
   const handleViewFile=(file:CodeFile)=>{setViewingFile(file);setFileViewerOpen(true);};
-  const handleKeyDown=(e:React.KeyboardEvent)=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();handleSendMessage();}};
 
   // ============ RENAME HANDLERS ============
   const handleStartRename = (id:string, type:'project'|'chat', currentName:string) => {
@@ -968,9 +1026,9 @@ export default function Home() {
     }catch{toast({title:'Error',variant:'destructive'});}
   };
   const handleApproveRetake = async (assignmentId:string) => {
-    try{const r=await fetch(`/api/trainings/assignments/${assignmentId}/approve-retake`,{method:'POST'});
+    try{const r=await fetch(`/api/trainings/assignments/${assignmentId}/approve-retake`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({performedBy:isAdmin?'admin':employeeName})});
       if(r.ok){toast({title:'Retake Approved'});fetchAllAssignments();}
-      else toast({title:'Error',variant:'destructive'});
+      else{const d=await r.json().catch(()=>({}));toast({title:'Error',description:d.error||'Failed to approve retake',variant:'destructive'});}
     }catch{toast({title:'Error',variant:'destructive'});}
   };  // ============ ADMIN PROJECT TOGGLE LOCK ============
   const handleToggleProjectLock = async (projectId:string) => {
@@ -1909,11 +1967,14 @@ export default function Home() {
                 title="Attach file or image">
                 {uploadingFile ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
               </Button>
-              <textarea ref={inputRef} value={inputMessage} onChange={e=>setInputMessage(e.target.value)} onKeyDown={handleKeyDown}
+              <ChatInput
+                onSend={(msg) => handleSendMessage(msg)}
                 placeholder={selectedBusinessChatId?"Ask Trishul B.A. about business strategy...":"Ask anything about code..."}
-                className="flex-1 resize-none rounded-lg border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary min-h-[40px] max-h-[120px]"
-                rows={1}/>
-              <Button onClick={handleSendMessage} disabled={isLoading||(!inputMessage.trim()&&pendingAttachments.length===0)} size="icon" className="h-10 w-10 flex-shrink-0"><Send className="h-4 w-4"/></Button>
+                disabled={isLoading}
+                inputRef={inputRef}
+                clearSignal={chatInputClearSignal}
+              />
+              <Button onClick={() => { const v = inputRef.current?.value?.trim(); if(v){ handleSendMessage(v); setChatInputClearSignal(s=>s+1); } }} disabled={isLoading||pendingAttachments.length===0} size="icon" className="h-10 w-10 flex-shrink-0"><Send className="h-4 w-4"/></Button>
             </div>
             </>
             )}

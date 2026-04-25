@@ -272,3 +272,38 @@ Stage Summary:
 - Admin has visible Trash2 delete buttons with AlertDialog confirmation on all chat types
 - SMTP settings configurable from admin dashboard; OTP sent via email when configured; shown on screen only as fallback
 - All lint checks pass, dev server running clean
+
+---
+Task ID: bugfix-round-4
+Agent: Main
+Task: Fix 3 issues: B.A. chat not persisting, admin approve retake error, direct chat typing lag
+
+Work Log:
+- FIX 1: Trishul B.A. chat not saving/persisting when admin returns
+  - Root cause: `fetchBusinessChats` was fetching from `/api/direct-chats` which only returned `mode: 'direct'` conversations, then filtering client-side for `mode: 'business'` — always getting empty array
+  - Updated `/api/direct-chats/route.ts` to accept `?mode=` query param, defaulting to returning both 'direct' and 'business' modes
+  - Updated `fetchDirectChats` to fetch `/api/direct-chats?mode=direct` 
+  - Updated `fetchBusinessChats` to fetch `/api/direct-chats?mode=business`
+  - Business chats now correctly persisted and visible in sidebar when admin returns
+
+- FIX 2: Admin approve retake request error (ss 767)
+  - Root cause: `handleApproveRetake` sent POST request without `Content-Type: application/json` header and without `performedBy` in the body, while the API route tried to parse JSON body
+  - Added `Content-Type: application/json` header and `body: JSON.stringify({performedBy: isAdmin?'admin':employeeName})`
+  - Added proper error message display: `toast({title:'Error', description: d.error||'Failed to approve retake'})`
+  - Also made the API route more robust: `req.json().catch(() => ({}))` to handle empty/malformed bodies
+
+- FIX 3: Direct chat typing lag/delay (ss 768)
+  - Root cause: Every keystroke triggered `setInputMessage()` which re-rendered the entire 2200-line component with all its state, causing visible delay
+  - Created `ChatInput` component using `React.memo` with its own local state (`localValue`)
+  - Typing now only re-renders the small ChatInput component, not the entire page
+  - ChatInput handles Enter key internally and calls `onSend(val)` with the message
+  - Send button reads value from `inputRef.current?.value` and increments `chatInputClearSignal` to clear the input
+  - Used `key` prop (`chat-input-${clearSignal}`) to remount the textarea when clearing after Send button click
+  - Removed old `handleKeyDown` function (now handled inside ChatInput)
+  - Also fixed pre-existing bug: `forEach` in QuizView JSX that returned void (TS error)
+
+Stage Summary:
+- B.A. chats now correctly persisted — admin can see chat history when returning
+- Admin approve retake now works — sends proper JSON body with Content-Type header
+- Direct chat typing is now smooth — input uses memoized component with local state
+- All lint checks pass, dev server running clean
