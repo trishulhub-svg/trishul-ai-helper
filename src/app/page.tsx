@@ -13,7 +13,7 @@ import {
   Loader2, Sparkles, Eye, Shield, User, LogOut, KeyRound, ClipboardList,
   CheckCircle2, XCircle, Lock, Unlock, Briefcase, GraduationCap, Users,
   Play, Clock, Award, BarChart3, Settings, EyeOff, Timer, Video, Menu,
-  Lightbulb, Paperclip, Image as ImageIcon, FileText, Bell, Calendar,
+  Lightbulb, Paperclip, Image as ImageIcon, FileText, Bell, Calendar, Mail,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -397,6 +397,8 @@ export default function Home() {
   const [editingType, setEditingType] = useState<'project'|'chat'|null>(null);
   const [editingValue, setEditingValue] = useState('');
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [adminEmail, setAdminEmail] = useState('');
+  const [adminId, setAdminId] = useState('');
   const [showBulkHide, setShowBulkHide] = useState(false);
   const [bulkHideType, setBulkHideType] = useState<'direct_chats'|'projects'>('direct_chats');
   const [bulkHideSelection, setBulkHideSelection] = useState<Set<string>>(new Set());
@@ -499,7 +501,7 @@ export default function Home() {
     const n = localStorage.getItem('trishul_employee_name');
     const a = localStorage.getItem('trishul_admin_logged_in');
     const eid = localStorage.getItem('trishul_employee_db_id');
-    if (r === 'admin' && a === 'true') { setUserRole('admin'); setAdminLoggedIn(true); setShowRoleSelect(false); }
+    if (r === 'admin' && a === 'true') { setUserRole('admin'); setAdminLoggedIn(true); setShowRoleSelect(false); const em=localStorage.getItem('trishul_admin_email'); const aid=localStorage.getItem('trishul_admin_id'); if(em) setAdminEmail(em); if(aid) setAdminId(aid); }
     else if (r === 'employee' && n) { setUserRole('employee'); setEmployeeName(n); setEmployeeDbId(eid); setShowRoleSelect(false); }
   }, [mounted]);
 
@@ -560,7 +562,7 @@ export default function Home() {
   }, [selectedConversationId, selectedDirectChatId, selectedBusinessChatId]);
 
   const fetchAuditLogs = useCallback(async () => {
-    try{const r=await fetch('/api/audit-logs');if(r.ok) setAuditLogs(await r.json());}catch{}
+    try{const r=await fetch('/api/audit-logs');if(r.ok){const d=await r.json();setAuditLogs(d.logs||[]);}}catch{}
   }, []);
 
   const fetchEmployees = useCallback(async () => {
@@ -729,7 +731,7 @@ export default function Home() {
     setRoleLoading(true);
     try{
       const r=await fetch('/api/admin/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:adminPassword})});
-      if(r.ok){localStorage.setItem('trishul_role','admin');localStorage.setItem('trishul_admin_logged_in','true');setUserRole('admin');setAdminLoggedIn(true);setShowRoleSelect(false);setAdminPassword('');toast({title:'Welcome, Admin!'});}
+      if(r.ok){const d=await r.json();localStorage.setItem('trishul_role','admin');localStorage.setItem('trishul_admin_logged_in','true');setUserRole('admin');setAdminLoggedIn(true);setShowRoleSelect(false);setAdminPassword('');if(d.admin){setAdminEmail(d.admin.email||'');setAdminId(d.admin.id||'');localStorage.setItem('trishul_admin_email',d.admin.email||'');localStorage.setItem('trishul_admin_id',d.admin.id||'');}toast({title:'Welcome, Admin!'});}
       else{const d=await r.json();toast({title:'Login Failed',description:d.error||'Invalid password',variant:'destructive'});}
     }catch{toast({title:'Error',description:'Failed',variant:'destructive'});}
     finally{setRoleLoading(false);}
@@ -740,7 +742,7 @@ export default function Home() {
     setRoleLoading(true);
     try{
       const r=await fetch('/api/admin/setup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:adminSetupEmail.trim(),password:adminSetupPassword.trim()})});
-      if(r.ok){localStorage.setItem('trishul_role','admin');localStorage.setItem('trishul_admin_logged_in','true');setUserRole('admin');setAdminLoggedIn(true);setShowRoleSelect(false);setAdminSetupMode(false);setAdminSetupPassword('');setAdminSetupEmail('');toast({title:'Admin Created!'});}
+      if(r.ok){const d=await r.json();localStorage.setItem('trishul_role','admin');localStorage.setItem('trishul_admin_logged_in','true');setUserRole('admin');setAdminLoggedIn(true);setShowRoleSelect(false);setAdminSetupMode(false);setAdminEmail(adminSetupEmail.trim());setAdminId(d.id||'');localStorage.setItem('trishul_admin_email',adminSetupEmail.trim());localStorage.setItem('trishul_admin_id',d.id||'');setAdminSetupPassword('');setAdminSetupEmail('');toast({title:'Admin Created!'});}
       else{const d=await r.json();toast({title:'Setup Failed',description:d.error||'Failed',variant:'destructive'});}
     }catch{toast({title:'Error',description:'Failed',variant:'destructive'});}
     finally{setRoleLoading(false);}
@@ -882,14 +884,15 @@ export default function Home() {
 
   // ============ ADMIN PASSWORD RESET ============
   const handleAdminResetRequest = async () => {
-    try{const r=await fetch('/api/admin/request-password-reset',{method:'POST'});
-      if(r.ok){const d=await r.json();setGeneratedOtp(d.otp||'');setAdminResetStep('verify');toast({title:'OTP Generated',description:`OTP: ${d.otp} (shown here since email is not configured)`});}
-      else toast({title:'Error',variant:'destructive'});
+    if(!adminEmail){toast({title:'Error',description:'Admin email not found. Please log in again.',variant:'destructive'});return;}
+    try{const r=await fetch('/api/admin/request-password-reset',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:adminEmail})});
+      if(r.ok){const d=await r.json();setGeneratedOtp(d.otp||'');setAdminId(d.adminId||adminId);setAdminResetStep('verify');toast({title:'OTP Generated',description:`OTP: ${d.otp} (shown here since email is not configured)`});}
+      else{const d=await r.json().catch(()=>({}));toast({title:'Error',description:d.error||'Failed',variant:'destructive'});}
     }catch{toast({title:'Error',variant:'destructive'});}
   };
   const handleAdminResetVerify = async () => {
     if(!adminResetOtp.trim()||!adminResetNewPass.trim()){toast({title:'Required',description:'Enter OTP and new password',variant:'destructive'});return;}
-    try{const r=await fetch('/api/admin/verify-password-reset',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({otp:adminResetOtp.trim(),newPassword:adminResetNewPass.trim()})});
+    try{const r=await fetch('/api/admin/verify-password-reset',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({otp:adminResetOtp.trim(),newPassword:adminResetNewPass.trim(),adminId:adminId})});
       if(r.ok){toast({title:'Password Reset Successfully'});setShowAdminResetPassword(false);setAdminResetOtp('');setAdminResetNewPass('');setAdminResetStep('request');setGeneratedOtp('');}
       else{const d=await r.json();toast({title:'Error',description:d.error||'Invalid OTP',variant:'destructive'});}
     }catch{toast({title:'Error',variant:'destructive'});}
@@ -899,7 +902,7 @@ export default function Home() {
   const handleUpdateEmail = async () => {
     if(!adminNewEmail.trim()||!adminEmailPassword.trim()){toast({title:'Required',description:'Enter email and current password',variant:'destructive'});return;}
     try{const r=await fetch('/api/admin/update-email',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:adminNewEmail.trim(),password:adminEmailPassword.trim()})});
-      if(r.ok){toast({title:'Email Updated'});setShowUpdateEmail(false);setAdminNewEmail('');setAdminEmailPassword('');}
+      if(r.ok){const d=await r.json();toast({title:'Email Updated'});setShowUpdateEmail(false);setAdminNewEmail('');setAdminEmailPassword('');if(d.email){setAdminEmail(d.email);localStorage.setItem('trishul_admin_email',d.email);}}
       else{const d=await r.json();toast({title:'Error',description:d.error||'Failed',variant:'destructive'});}
     }catch{toast({title:'Error',variant:'destructive'});}
   };
@@ -1752,13 +1755,40 @@ export default function Home() {
       </Dialog>
 
       {/* Change Password Dialog */}
-      <Dialog open={showChangePassword} onOpenChange={v=>{setShowChangePassword(v);if(!v){setCurrentPassword('');setNewPassword('');}}}>
-        <DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle className="flex items-center gap-2"><KeyRound className="h-5 w-5"/>Change Password</DialogTitle></DialogHeader>
-          <div className="space-y-3">
-            <div><Label>Current Password</Label><Input value={currentPassword} onChange={e=>setCurrentPassword(e.target.value)} type="password"/></div>
-            <div><Label>New Password</Label><Input value={newPassword} onChange={e=>setNewPassword(e.target.value)} type="password"/></div>
-            <Button onClick={handleChangePassword} disabled={!currentPassword.trim()||!newPassword.trim()} className="w-full">Change Password</Button>
-          </div>
+      <Dialog open={showChangePassword} onOpenChange={v=>{setShowChangePassword(v);if(!v){setCurrentPassword('');setNewPassword('');setAdminResetStep('request');setAdminResetOtp('');setAdminResetNewPass('');setGeneratedOtp('');}}}>
+        <DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle className="flex items-center gap-2"><KeyRound className="h-5 w-5"/>Password Management</DialogTitle></DialogHeader>
+          <Tabs defaultValue="change" className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="change" className="text-xs gap-1"><KeyRound className="h-3 w-3"/>Change Password</TabsTrigger>
+              <TabsTrigger value="reset" className="text-xs gap-1"><Mail className="h-3 w-3"/>Reset via Email</TabsTrigger>
+            </TabsList>
+            <TabsContent value="change" className="mt-3">
+              <div className="space-y-3">
+                <div><Label>Current Password</Label><Input value={currentPassword} onChange={e=>setCurrentPassword(e.target.value)} type="password"/></div>
+                <div><Label>New Password</Label><Input value={newPassword} onChange={e=>setNewPassword(e.target.value)} type="password"/></div>
+                <Button onClick={handleChangePassword} disabled={!currentPassword.trim()||!newPassword.trim()} className="w-full">Change Password</Button>
+              </div>
+            </TabsContent>
+            <TabsContent value="reset" className="mt-3">
+              <div className="space-y-3">
+                {adminEmail&&<div className="flex items-center gap-2 p-2 rounded-lg bg-muted/50"><Mail className="h-4 w-4 text-primary flex-shrink-0"/><span className="text-sm font-medium truncate">{adminEmail}</span></div>}
+                {!adminEmail&&<p className="text-xs text-destructive">Admin email not found. Please log in again.</p>}
+                {adminResetStep==='request'?(
+                  <div className="space-y-2">
+                    <p className="text-xs text-muted-foreground">An OTP will be generated and sent to your admin email. Since email sending is not configured in this environment, the OTP will be displayed on screen.</p>
+                    <Button onClick={handleAdminResetRequest} disabled={!adminEmail} className="w-full"><Mail className="h-4 w-4 mr-2"/>Send OTP to Email</Button>
+                  </div>
+                ):(
+                  <div className="space-y-2">
+                    {generatedOtp&&<div className="flex items-center gap-2 p-2 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800"><span className="text-xs font-medium">Your OTP:</span><code className="text-sm font-bold text-amber-600 dark:text-amber-400">{generatedOtp}</code></div>}
+                    <div><Label>OTP</Label><Input value={adminResetOtp} onChange={e=>setAdminResetOtp(e.target.value)} placeholder="Enter OTP"/></div>
+                    <div><Label>New Password</Label><Input value={adminResetNewPass} onChange={e=>setAdminResetNewPass(e.target.value)} type="password"/></div>
+                    <Button onClick={handleAdminResetVerify} disabled={!adminResetOtp.trim()||!adminResetNewPass.trim()} className="w-full">Verify & Reset</Button>
+                  </div>
+                )}
+              </div>
+            </TabsContent>
+          </Tabs>
         </DialogContent>
       </Dialog>
 
