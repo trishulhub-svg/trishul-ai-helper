@@ -13,7 +13,7 @@ import {
   Loader2, Sparkles, Eye, Shield, User, LogOut, KeyRound, ClipboardList,
   CheckCircle2, XCircle, Lock, Unlock, Briefcase, GraduationCap, Users,
   Play, Clock, Award, BarChart3, Settings, EyeOff, Timer, Video, Menu,
-  Lightbulb,
+  Lightbulb, Paperclip, Image as ImageIcon, FileText,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -54,8 +54,15 @@ interface Conversation {
   id: string; projectId: string | null; title: string; mode: string;
   createdAt: string; updatedAt: string; messages?: Message[]; _count?: { messages: number };
 }
+interface MessageAttachment {
+  type: string; // 'image', 'video', 'file'
+  url: string;
+  name: string;
+  mimeType: string;
+}
 interface Message {
   id: string; conversationId: string; role: string; content: string; createdAt: string;
+  attachments?: MessageAttachment[];
 }
 interface DeleteRequest {
   id: string; type: string; targetId: string; targetName: string;
@@ -197,6 +204,8 @@ function ChatMessage({ message, projectId, onFilesUpdated, onViewCode }: {
   onViewCode: (code: string, language: string) => void;
 }) {
   const isUser = message.role === 'user';
+  const attachments = message.attachments || [];
+
   return (
     <div className={`flex gap-2 sm:gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}>
       {!isUser && (
@@ -205,6 +214,30 @@ function ChatMessage({ message, projectId, onFilesUpdated, onViewCode }: {
         </div>
       )}
       <div className="max-w-[92%] sm:max-w-[85%] min-w-0">
+        {/* Attachments */}
+        {attachments.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-1.5">
+            {attachments.map((att, idx) => (
+              <div key={idx} className="relative">
+                {att.type === 'image' ? (
+                  <a href={att.url} target="_blank" rel="noopener noreferrer">
+                    <img
+                      src={att.url}
+                      alt={att.name}
+                      className="max-h-48 max-w-[280px] rounded-lg border border-border object-contain cursor-pointer hover:opacity-90 transition-opacity"
+                    />
+                  </a>
+                ) : (
+                  <a href={att.url} target="_blank" rel="noopener noreferrer"
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-muted hover:bg-muted/80 transition-colors text-xs">
+                    <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                    <span className="truncate max-w-[160px]">{att.name}</span>
+                  </a>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
         <div className={`rounded-2xl px-3 py-2.5 sm:px-4 sm:py-3 text-sm leading-relaxed ${isUser ? 'bg-primary text-primary-foreground rounded-br-md' : 'bg-muted text-foreground rounded-bl-md'}`}>
           {isUser ? (
             <p className="whitespace-pre-wrap">{message.content}</p>
@@ -428,6 +461,11 @@ export default function Home() {
   const [quizMode, setQuizMode] = useState(false);
   const [videoWatched, setVideoWatched] = useState(false);
 
+  // Attachments
+  const [pendingAttachments, setPendingAttachments] = useState<MessageAttachment[]>([]);
+  const [uploadingFile, setUploadingFile] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const allCodeBlocks = extractCodeBlocksFromMessages(messages);
@@ -488,9 +526,17 @@ export default function Home() {
     try { const r=await fetch(`/api/projects/${selectedProjectId}`); if(r.ok){const d=await r.json();setCurrentProject(d);setProjectFiles(d.files||[]);} } catch{}
   }, [selectedProjectId]);
 
+  // Helper to parse message attachments from JSON strings
+  const parseMessagesWithAttachments = (rawMessages: any[]): Message[] => {
+    return (rawMessages || []).map((m: any) => ({
+      ...m,
+      attachments: typeof m.attachments === 'string' ? (()=>{try{return JSON.parse(m.attachments)}catch{return[]}})() : (m.attachments || []),
+    }));
+  };
+
   const fetchMessages = useCallback(async (convId?:string) => {
     const id=convId||selectedConversationId; if(!id){if(!selectedDirectChatId&&!selectedBusinessChatId)setMessages([]);return;}
-    try { const r=await fetch(`/api/conversations/${id}`); if(r.ok){const d=await r.json();setCurrentConversation(d);setMessages(d.messages||[]);} } catch{}
+    try { const r=await fetch(`/api/conversations/${id}`); if(r.ok){const d=await r.json();setCurrentConversation(d);setMessages(parseMessagesWithAttachments(d.messages||[]));} } catch{}
   }, [selectedConversationId, selectedDirectChatId, selectedBusinessChatId]);
 
   const fetchEmployees = useCallback(async () => {
@@ -507,7 +553,7 @@ export default function Home() {
 
   const fetchEmployeeTrainings = useCallback(async () => {
     if(!employeeDbId) return;
-    try { const r=await fetch(`/api/trainings/employee/${employeeDbId}`); if(r.ok) setEmployeeTrainings(await r.json()); } catch{}
+    try { const r=await fetch(`/api/trainings/employee/${employeeDbId}`); if(r.ok){const d=await r.json(); setEmployeeTrainings(d.assignments||[]);} } catch{}
   }, [employeeDbId]);
 
   // Initial load
@@ -516,8 +562,8 @@ export default function Home() {
   useEffect(() => { if(userRole==='employee'&&employeeDbId) fetchEmployeeTrainings(); }, [fetchEmployeeTrainings,userRole,employeeDbId]);
   useEffect(() => { fetchProjectDetails(); }, [fetchProjectDetails]);
   useEffect(() => {
-    if(selectedBusinessChatId){ fetch(`/api/conversations/${selectedBusinessChatId}`).then(r=>r.ok?r.json():null).then(d=>{if(d){setCurrentConversation(d);setMessages(d.messages||[]);}}).catch(()=>{}); }
-    else if(selectedDirectChatId){ fetch(`/api/conversations/${selectedDirectChatId}`).then(r=>r.ok?r.json():null).then(d=>{if(d){setCurrentConversation(d);setMessages(d.messages||[]);}}).catch(()=>{}); }
+    if(selectedBusinessChatId){ fetch(`/api/conversations/${selectedBusinessChatId}`).then(r=>r.ok?r.json():null).then(d=>{if(d){setCurrentConversation(d);setMessages(parseMessagesWithAttachments(d.messages||[]));}}).catch(()=>{}); }
+    else if(selectedDirectChatId){ fetch(`/api/conversations/${selectedDirectChatId}`).then(r=>r.ok?r.json():null).then(d=>{if(d){setCurrentConversation(d);setMessages(parseMessagesWithAttachments(d.messages||[]));}}).catch(()=>{}); }
     else if(selectedConversationId) fetchMessages();
     else setMessages([]);
   }, [selectedConversationId, selectedDirectChatId, selectedBusinessChatId, fetchMessages]);
@@ -646,9 +692,9 @@ export default function Home() {
     setRoleLoading(true);
     try{
       const r=await fetch('/api/employees/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({employeeId:employeeLoginId.trim(),password:employeeLoginPass.trim()})});
-      if(r.ok){const d=await r.json();localStorage.setItem('trishul_role','employee');localStorage.setItem('trishul_employee_name',d.name);localStorage.setItem('trishul_employee_db_id',d.id);
-        setUserRole('employee');setEmployeeName(d.name);setEmployeeDbId(d.id);setShowRoleSelect(false);setEmployeeLoginId('');setEmployeeLoginPass('');
-        toast({title:'Welcome!',description:`Hello, ${d.name}`});
+      if(r.ok){const d=await r.json();const emp=d.employee||d;localStorage.setItem('trishul_role','employee');localStorage.setItem('trishul_employee_name',emp.name);localStorage.setItem('trishul_employee_db_id',emp.id);
+        setUserRole('employee');setEmployeeName(emp.name);setEmployeeDbId(emp.id);setShowRoleSelect(false);setEmployeeLoginId('');setEmployeeLoginPass('');
+        toast({title:'Welcome!',description:`Hello, ${emp.name}`});
       } else {toast({title:'Login Failed',description:'Invalid Employee ID or Password',variant:'destructive'});}
     }catch{toast({title:'Error',description:'Failed',variant:'destructive'});}
     finally{setRoleLoading(false);}
@@ -686,10 +732,40 @@ export default function Home() {
   }, [userRole,lockedProjectId,employeeName,setSelectedProjectId,setSelectedConversationId,toast]);
 
   // ============ CHAT ============
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    setUploadingFile(true);
+    try {
+      for (const file of Array.from(files)) {
+        const formData = new FormData();
+        formData.append('file', file);
+        const r = await fetch('/api/upload', { method: 'POST', body: formData });
+        if (r.ok) {
+          const d = await r.json();
+          setPendingAttachments(prev => [...prev, { type: d.type, url: d.url, name: d.name, mimeType: d.mimeType }]);
+        } else {
+          toast({ title: 'Upload Failed', description: `Failed to upload ${file.name}`, variant: 'destructive' });
+        }
+      }
+    } catch {
+      toast({ title: 'Upload Error', description: 'Failed to upload file(s)', variant: 'destructive' });
+    } finally {
+      setUploadingFile(false);
+      // Reset the file input
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const removePendingAttachment = (index: number) => {
+    setPendingAttachments(prev => prev.filter((_, i) => i !== index));
+  };
+
   const handleSendMessage = async () => {
-    if(!inputMessage.trim()||isLoading) return;
+    if((!inputMessage.trim() && pendingAttachments.length === 0)||isLoading) return;
     const userMsg=inputMessage.trim();setInputMessage('');setIsLoading(true);setUserScrolledUp(false);
-    const tempMsg:Message={id:'temp-'+Date.now(),conversationId:selectedBusinessChatId||selectedDirectChatId||selectedConversationId||'',role:'user',content:userMsg,createdAt:new Date().toISOString()};
+    const currentAttachments=[...pendingAttachments];setPendingAttachments([]);
+    const tempMsg:Message={id:'temp-'+Date.now(),conversationId:selectedBusinessChatId||selectedDirectChatId||selectedConversationId||'',role:'user',content:userMsg||'📎 Shared file(s)',createdAt:new Date().toISOString(),attachments:currentAttachments};
     setMessages(prev=>[...prev,tempMsg]);
     try{
       const isBusiness=!!selectedBusinessChatId||activeView==='chat'&&userRole==='admin'&&!!selectedBusinessChatId;
@@ -697,23 +773,24 @@ export default function Home() {
       const r=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
         projectId:selectedProjectId||undefined,
         conversationId:selectedBusinessChatId||selectedDirectChatId||selectedConversationId||undefined,
-        message:userMsg,
+        message:userMsg||'Please analyze the attached file(s).',
+        attachments:currentAttachments.length>0?currentAttachments:undefined,
       })});
       if(r.ok){
         const d=await r.json();const newConvId=d.conversationId;
         if(newConvId&&!selectedDirectChatId&&!selectedConversationId&&!selectedBusinessChatId){
           if(isBusiness)setSelectedBusinessChatId(newConvId);else if(!selectedProjectId)setSelectedDirectChatId(newConvId);else setSelectedConversationId(newConvId);
         }
-        if(newConvId){try{const mr=await fetch(`/api/conversations/${newConvId}`);if(mr.ok){const md=await mr.json();setCurrentConversation(md);setMessages(md.messages||[]);}}catch{}}
+        if(newConvId){try{const mr=await fetch(`/api/conversations/${newConvId}`);if(mr.ok){const md=await mr.json();setCurrentConversation(md);setMessages(parseMessagesWithAttachments(md.messages||[]));}}catch{}}
         if(isBusiness)fetchBusinessChats();else if(!selectedProjectId)fetchDirectChats();else{fetchProjectDetails();fetchProjects();}
       }else{toast({title:'Error',description:'Failed',variant:'destructive'});setMessages(prev=>prev.filter(m=>m.id!==tempMsg.id));}
     }catch{toast({title:'Network Error',variant:'destructive'});setMessages(prev=>prev.filter(m=>m.id!==tempMsg.id));}
     finally{setIsLoading(false);}
   };
 
-  const handleNewChat=()=>{setSelectedConversationId(null);setMessages([]);setCurrentConversation(null);setUserScrolledUp(false);inputRef.current?.focus();};
-  const handleNewDirectChat=()=>{setSelectedDirectChatId(null);setSelectedProjectId(null);setSelectedConversationId(null);setSelectedBusinessChatId(null);setMessages([]);setCurrentConversation(null);setCodePanelOpen(false);setActiveView('chat');setUserScrolledUp(false);inputRef.current?.focus();};
-  const handleNewBusinessChat=()=>{setSelectedBusinessChatId(null);setSelectedDirectChatId(null);setSelectedProjectId(null);setSelectedConversationId(null);setMessages([]);setCurrentConversation(null);setActiveView('chat');setUserScrolledUp(false);inputRef.current?.focus();};
+  const handleNewChat=()=>{setSelectedConversationId(null);setMessages([]);setCurrentConversation(null);setUserScrolledUp(false);setPendingAttachments([]);inputRef.current?.focus();};
+  const handleNewDirectChat=()=>{setSelectedDirectChatId(null);setSelectedProjectId(null);setSelectedConversationId(null);setSelectedBusinessChatId(null);setMessages([]);setCurrentConversation(null);setCodePanelOpen(false);setActiveView('chat');setUserScrolledUp(false);setPendingAttachments([]);inputRef.current?.focus();};
+  const handleNewBusinessChat=()=>{setSelectedBusinessChatId(null);setSelectedDirectChatId(null);setSelectedProjectId(null);setSelectedConversationId(null);setMessages([]);setCurrentConversation(null);setActiveView('chat');setUserScrolledUp(false);setPendingAttachments([]);inputRef.current?.focus();};
   const toggleProjectExpand=(id:string)=>{setExpandedProjects(prev=>{const n=new Set(prev);if(n.has(id))n.delete(id);else n.add(id);return n;});};
   const handleViewFile=(file:CodeFile)=>{setViewingFile(file);setFileViewerOpen(true);};
   const handleKeyDown=(e:React.KeyboardEvent)=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();handleSendMessage();}};
@@ -1140,12 +1217,46 @@ export default function Home() {
 
           {/* Input */}
           <div className="border-t p-2 sm:p-3">
-            <div className="flex gap-2 max-w-4xl mx-auto">
+            {/* Pending Attachments Preview */}
+            {pendingAttachments.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-2 max-w-4xl mx-auto">
+                {pendingAttachments.map((att, idx) => (
+                  <div key={idx} className="relative group">
+                    {att.type === 'image' ? (
+                      <div className="relative">
+                        <img src={att.url} alt={att.name} className="h-16 w-16 object-cover rounded-md border border-border" />
+                        <button onClick={() => removePendingAttachment(idx)}
+                          className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center text-xs hover:bg-destructive/80 transition-colors">
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1.5 px-2 py-1 rounded-md border border-border bg-muted text-xs">
+                        <FileText className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                        <span className="truncate max-w-[100px]">{att.name}</span>
+                        <button onClick={() => removePendingAttachment(idx)} className="ml-1 text-muted-foreground hover:text-destructive">
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex gap-2 max-w-4xl mx-auto items-end">
+              <input ref={fileInputRef} type="file" className="hidden" multiple
+                accept="image/*,.pdf,.txt,.csv,.json,.doc,.docx,.xls,.xlsx,.md,.py,.js,.ts,.tsx,.jsx,.html,.css,.java,.cpp,.c,.h,.rb,.go,.rs,.php,.sql,.yaml,.yml,.xml,.sh,.bat"
+                onChange={handleFileUpload} />
+              <Button variant="ghost" size="icon" className="h-10 w-10 flex-shrink-0 text-muted-foreground hover:text-foreground"
+                onClick={() => fileInputRef.current?.click()} disabled={isLoading || uploadingFile}
+                title="Attach file or image">
+                {uploadingFile ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
+              </Button>
               <textarea ref={inputRef} value={inputMessage} onChange={e=>setInputMessage(e.target.value)} onKeyDown={handleKeyDown}
                 placeholder={selectedBusinessChatId?"Ask Trishul B.A. about business strategy...":"Ask anything about code..."}
                 className="flex-1 resize-none rounded-lg border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary min-h-[40px] max-h-[120px]"
                 rows={1}/>
-              <Button onClick={handleSendMessage} disabled={isLoading||!inputMessage.trim()} size="icon" className="h-10 w-10 flex-shrink-0"><Send className="h-4 w-4"/></Button>
+              <Button onClick={handleSendMessage} disabled={isLoading||(!inputMessage.trim()&&pendingAttachments.length===0)} size="icon" className="h-10 w-10 flex-shrink-0"><Send className="h-4 w-4"/></Button>
             </div>
           </div>
         </div>

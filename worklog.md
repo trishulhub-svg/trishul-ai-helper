@@ -108,3 +108,40 @@ Stage Summary:
 - Session locking for employee chats maintained
 - Delete request workflow maintained
 - All features mobile responsive
+
+---
+Task ID: bugfix-session
+Agent: Main
+Task: Fix employee name "undefined" bug, training not visible, add file/image attachment to all chats with VLM support
+
+Work Log:
+- Fixed employee login bug: API returns `{success, employee: {id, name, employeeId}}` but client accessed `d.name` and `d.id` instead of `d.employee.name` and `d.employee.id`
+- Fixed training visibility: `fetchEmployeeTrainings` was setting `employeeTrainings` to entire API response `{employee, summary, assignments}` instead of just `d.assignments`
+- Added `attachments` field to Message Prisma model (JSON string of attachment metadata)
+- Ran `bun run db:push` to sync schema
+- Created `/api/upload/route.ts` - file upload endpoint (multipart form data, 20MB limit, saves to upload/chat/)
+- Created `/api/files/[...path]/route.ts` - file serving endpoint with security checks and content type detection
+- Updated `/api/chat/route.ts` - now handles image attachments using VLM (createVision), file attachments by reading text content, preserves attachment metadata in messages
+- Updated `/api/chat/business/route.ts` - same VLM + file attachment support for business agent
+- Added `MessageAttachment` interface to page.tsx
+- Added `pendingAttachments` state, `uploadingFile` state, `fileInputRef` ref
+- Added `handleFileUpload()` - uploads files via FormData, creates attachment metadata
+- Added `removePendingAttachment()` - removes pending attachment from preview
+- Updated `handleSendMessage()` - sends attachments with chat message, supports sending with only attachments (no text)
+- Added paperclip attachment button in chat input area with upload spinner
+- Added attachment preview bar showing image thumbnails and file chips with remove buttons
+- Updated `ChatMessage` component to display image attachments (with click-to-open) and file attachments (with download link)
+- Added `parseMessagesWithAttachments()` helper to parse JSON attachment strings from API responses
+- Updated all message fetching points to use `parseMessagesWithAttachments()`
+- Added `Paperclip`, `ImageIcon`, `FileText` icons from lucide-react
+- Cleared `pendingAttachments` on new chat/direct chat/business chat
+- All lint checks pass, dev server running clean, upload and file serving APIs tested
+
+Stage Summary:
+- Employee name "undefined" bug fixed - now correctly reads `d.employee.name` from login API response
+- Training assignments now visible to employees - correctly extracts `d.assignments` from API response
+- File/image attachment available in ALL chat modes (direct, project, business/B.A.)
+- VLM (Vision Language Model) integration for image analysis in all chats
+- Non-image files (PDFs, text, code) read and included in chat context
+- Attachment previews in chat input, image display in messages
+- All existing features preserved and working
