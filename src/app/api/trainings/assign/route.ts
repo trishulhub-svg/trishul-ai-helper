@@ -51,6 +51,10 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Parse dueDate if provided
+    const { dueDate } = body;
+    const dueDateValue = dueDate ? new Date(dueDate) : null;
+
     // Create assignments for new employees
     const createdAssignments = [];
     for (const employeeId of newEmployeeIds) {
@@ -60,6 +64,7 @@ export async function POST(req: NextRequest) {
           employeeId,
           status: 'due',
           answers: '{}',
+          dueDate: dueDateValue,
         },
       });
       createdAssignments.push(assignment);

@@ -145,3 +145,35 @@ Stage Summary:
 - Non-image files (PDFs, text, code) read and included in chat context
 - Attachment previews in chat input, image display in messages
 - All existing features preserved and working
+
+---
+Task ID: features-1-12
+Agent: Main
+Task: Implement all 12 feature requests for Trishul AI Helper
+
+Work Log:
+- Updated Prisma schema: Added AuditLog model, ConversationLock model, isHidden on Conversation, attempts/maxAttempts/retakeRequested/retakeApproved/dueDate on TrainingAssignment
+- Ran db:push successfully
+- Created 13 new API routes: audit-logs, conversation lock/unlock/toggle-hide/rename, project rename, bulk-hide, retake request/approve, admin password reset/verify, admin update-email
+- Updated chat APIs to include max_tokens: 8000 for longer code responses
+- Updated training quiz generation prompt to be based on video content + difficulty level
+- Updated training recommendation prompt to use input category
+- Rewrote page.tsx frontend with all 12 features:
+  1. Direct chat locking + edit names + audit log + end&save + hide system
+  2. AI code length (max_tokens: 8000 in API)
+  3. Chat mode badges (BA/Direct) + hide BA from employees
+  4. Bulk hide with checkbox selection dialog
+  5. AI category suggestions based on input (API updated)
+  6. Quiz generation based on video + difficulty (API updated)
+  7. One attempt only + retake request + admin approval
+  8. After test: video hidden, questions review with correct/wrong
+  9. Fixed home screen - chat mode shows clearly with colored headers
+  10. Admin password reset with OTP + email update option
+  11. Notification badges on dashboard/training + due dates + overdue indicators
+  12. Full-page admin dashboard (not popup) with 6 tabs: Overview, Users, Trainings, Assignments, Audit Log, Settings
+
+Stage Summary:
+- All 12 features implemented
+- Lint passes, page loads successfully
+- Backend APIs: 13 new routes created
+- Frontend: Full-page admin dashboard, chat mode indication, training retake system, bulk hide, rename, audit logs

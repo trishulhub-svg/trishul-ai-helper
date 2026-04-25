@@ -13,7 +13,7 @@ import {
   Loader2, Sparkles, Eye, Shield, User, LogOut, KeyRound, ClipboardList,
   CheckCircle2, XCircle, Lock, Unlock, Briefcase, GraduationCap, Users,
   Play, Clock, Award, BarChart3, Settings, EyeOff, Timer, Video, Menu,
-  Lightbulb, Paperclip, Image as ImageIcon, FileText,
+  Lightbulb, Paperclip, Image as ImageIcon, FileText, Bell, Calendar,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -52,7 +52,7 @@ interface CodeFile {
 }
 interface Conversation {
   id: string; projectId: string | null; title: string; mode: string;
-  createdAt: string; updatedAt: string; messages?: Message[]; _count?: { messages: number };
+  isHidden: boolean; createdAt: string; updatedAt: string; messages?: Message[]; _count?: { messages: number };
 }
 interface MessageAttachment {
   type: string; // 'image', 'video', 'file'
@@ -80,6 +80,7 @@ interface TrainingAssignment {
   id: string; trainingId: string; employeeId: string; status: string;
   score: number | null; answers: string; startedAt: string | null;
   completedAt: string | null; createdAt: string; updatedAt: string;
+  attempts: number; maxAttempts: number; retakeRequested: boolean; retakeApproved: boolean; dueDate: string | null;
   training?: Training; employee?: Employee;
 }
 interface QuizQuestion {
@@ -389,6 +390,25 @@ export default function Home() {
   const [userScrolledUp, setUserScrolledUp] = useState(false);
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const [activeView, setActiveView] = useState<'chat'|'training'|'dashboard'>('chat');
+  const [chatMode, setChatMode] = useState<'none'|'direct'|'business'|'project'>('none');
+  const [directChatLocks, setDirectChatLocks] = useState<Record<string,{lockedBy:string;lockedAt:string}>>({});
+  const [lockedDirectChatId, setLockedDirectChatId] = useState<string|null>(null);
+  const [editingId, setEditingId] = useState<string|null>(null);
+  const [editingType, setEditingType] = useState<'project'|'chat'|null>(null);
+  const [editingValue, setEditingValue] = useState('');
+  const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [showBulkHide, setShowBulkHide] = useState(false);
+  const [bulkHideType, setBulkHideType] = useState<'direct_chats'|'projects'>('direct_chats');
+  const [bulkHideSelection, setBulkHideSelection] = useState<Set<string>>(new Set());
+  const [showAdminResetPassword, setShowAdminResetPassword] = useState(false);
+  const [adminResetOtp, setAdminResetOtp] = useState('');
+  const [adminResetNewPass, setAdminResetNewPass] = useState('');
+  const [adminResetStep, setAdminResetStep] = useState<'request'|'verify'>('request');
+  const [generatedOtp, setGeneratedOtp] = useState('');
+  const [showUpdateEmail, setShowUpdateEmail] = useState(false);
+  const [adminNewEmail, setAdminNewEmail] = useState('');
+  const [adminEmailPassword, setAdminEmailPassword] = useState('');
+  const [newTrainingDueDate, setNewTrainingDueDate] = useState('');
 
   // Dialog
   const [showNewProject, setShowNewProject] = useState(false);
@@ -430,7 +450,7 @@ export default function Home() {
   const [deleteReason, setDeleteReason] = useState('');
 
   // Admin Dashboard
-  const [showAdminDashboard, setShowAdminDashboard] = useState(false);
+  const [showAdminDashboard, setShowAdminDashboard] = useState(false); // Replaced by activeView='dashboard'
   const [adminTab, setAdminTab] = useState('users');
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [showNewEmployee, setShowNewEmployee] = useState(false);
@@ -539,6 +559,10 @@ export default function Home() {
     try { const r=await fetch(`/api/conversations/${id}`); if(r.ok){const d=await r.json();setCurrentConversation(d);setMessages(parseMessagesWithAttachments(d.messages||[]));} } catch{}
   }, [selectedConversationId, selectedDirectChatId, selectedBusinessChatId]);
 
+  const fetchAuditLogs = useCallback(async () => {
+    try{const r=await fetch('/api/audit-logs');if(r.ok) setAuditLogs(await r.json());}catch{}
+  }, []);
+
   const fetchEmployees = useCallback(async () => {
     try { const r=await fetch('/api/employees'); if(r.ok) setEmployees(await r.json()); } catch{}
   }, []);
@@ -558,7 +582,7 @@ export default function Home() {
 
   // Initial load
   useEffect(() => { if(userRole){fetchProjects();fetchDirectChats();fetchProjectLocks();if(userRole==='admin')fetchBusinessChats();} }, [fetchProjects,fetchDirectChats,fetchProjectLocks,fetchBusinessChats,userRole]);
-  useEffect(() => { if(userRole==='admin'){fetchDeleteRequests();fetchEmployees();fetchTrainings();fetchAllAssignments();} }, [fetchDeleteRequests,fetchEmployees,fetchTrainings,fetchAllAssignments,userRole]);
+  useEffect(() => { if(userRole==='admin'){fetchDeleteRequests();fetchEmployees();fetchTrainings();fetchAllAssignments();fetchAuditLogs();} }, [fetchDeleteRequests,fetchEmployees,fetchTrainings,fetchAllAssignments,fetchAuditLogs,userRole]);
   useEffect(() => { if(userRole==='employee'&&employeeDbId) fetchEmployeeTrainings(); }, [fetchEmployeeTrainings,userRole,employeeDbId]);
   useEffect(() => { fetchProjectDetails(); }, [fetchProjectDetails]);
   useEffect(() => {
@@ -788,14 +812,111 @@ export default function Home() {
     finally{setIsLoading(false);}
   };
 
-  const handleNewChat=()=>{setSelectedConversationId(null);setMessages([]);setCurrentConversation(null);setUserScrolledUp(false);setPendingAttachments([]);inputRef.current?.focus();};
-  const handleNewDirectChat=()=>{setSelectedDirectChatId(null);setSelectedProjectId(null);setSelectedConversationId(null);setSelectedBusinessChatId(null);setMessages([]);setCurrentConversation(null);setCodePanelOpen(false);setActiveView('chat');setUserScrolledUp(false);setPendingAttachments([]);inputRef.current?.focus();};
-  const handleNewBusinessChat=()=>{setSelectedBusinessChatId(null);setSelectedDirectChatId(null);setSelectedProjectId(null);setSelectedConversationId(null);setMessages([]);setCurrentConversation(null);setActiveView('chat');setUserScrolledUp(false);setPendingAttachments([]);inputRef.current?.focus();};
+  const handleNewChat=()=>{setSelectedConversationId(null);setMessages([]);setCurrentConversation(null);setUserScrolledUp(false);setPendingAttachments([]);setChatMode(selectedProjectId?'project':'none');inputRef.current?.focus();};
+  const handleNewDirectChat=()=>{setSelectedDirectChatId(null);setSelectedProjectId(null);setSelectedConversationId(null);setSelectedBusinessChatId(null);setMessages([]);setCurrentConversation(null);setCodePanelOpen(false);setActiveView('chat');setUserScrolledUp(false);setPendingAttachments([]);setChatMode('direct');inputRef.current?.focus();};
+  const handleNewBusinessChat=()=>{setSelectedBusinessChatId(null);setSelectedDirectChatId(null);setSelectedProjectId(null);setSelectedConversationId(null);setMessages([]);setCurrentConversation(null);setActiveView('chat');setUserScrolledUp(false);setPendingAttachments([]);setChatMode('business');inputRef.current?.focus();};
   const toggleProjectExpand=(id:string)=>{setExpandedProjects(prev=>{const n=new Set(prev);if(n.has(id))n.delete(id);else n.add(id);return n;});};
   const handleViewFile=(file:CodeFile)=>{setViewingFile(file);setFileViewerOpen(true);};
   const handleKeyDown=(e:React.KeyboardEvent)=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();handleSendMessage();}};
 
-  // ============ ADMIN PROJECT TOGGLE LOCK ============
+  // ============ RENAME HANDLERS ============
+  const handleStartRename = (id:string, type:'project'|'chat', currentName:string) => {
+    setEditingId(id); setEditingType(type); setEditingValue(currentName);
+  };
+  const handleSaveRename = async () => {
+    if(!editingId||!editingValue.trim()) {setEditingId(null);return;}
+    try {
+      const endpoint = editingType==='project'
+        ? `/api/projects/${editingId}/rename`
+        : `/api/conversations/${editingId}/rename`;
+      const body = editingType==='project'
+        ? {name:editingValue.trim(),performedBy:isAdmin?'admin':employeeName}
+        : {title:editingValue.trim(),performedBy:isAdmin?'admin':employeeName};
+      const r=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      if(r.ok){toast({title:'Renamed'});if(editingType==='project')fetchProjects();else{fetchDirectChats();fetchBusinessChats();}}
+      else toast({title:'Error',variant:'destructive'});
+    }catch{toast({title:'Error',variant:'destructive'});}
+    setEditingId(null);setEditingType(null);setEditingValue('');
+  };
+
+  // ============ DIRECT CHAT LOCKING ============
+  const handleSelectDirectChat = async (chatId:string) => {
+    if(userRole==='employee'){
+      const lockInfo=directChatLocks[chatId];
+      if(lockInfo&&lockInfo.lockedBy!==employeeName){toast({title:'Chat Locked',description:`In use by ${lockInfo.lockedBy}`,variant:'destructive'});return;}
+      if(!lockInfo){
+        try{const r=await fetch(`/api/conversations/${chatId}/lock`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lockedBy:employeeName})});
+          if(r.ok) setLockedDirectChatId(chatId);
+          else if(r.status===409){const d=await r.json();toast({title:'Chat Locked',description:d.error||'In use',variant:'destructive'});return;}
+        }catch{toast({title:'Error',description:'Failed to lock chat',variant:'destructive'});return;}
+      }
+    }
+    setSelectedDirectChatId(chatId);setSelectedProjectId(null);setSelectedConversationId(null);setSelectedBusinessChatId(null);setChatMode('direct');
+    if(isMobile)setMobileSheetOpen(false);
+  };
+  const handleEndDirectChat = async () => {
+    if(!lockedDirectChatId||userRole!=='employee') return;
+    try{await fetch(`/api/conversations/${lockedDirectChatId}/unlock`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lockedBy:employeeName})});
+      setLockedDirectChatId(null);setSelectedDirectChatId(null);setMessages([]);setChatMode('none');fetchDirectChats();
+      toast({title:'Chat Saved',description:'Session ended.'});
+    }catch{toast({title:'Error',variant:'destructive'});}
+  };
+
+  // ============ TOGGLE CHAT HIDE ============
+  const handleToggleChatHide = async (chatId:string) => {
+    try{const r=await fetch(`/api/conversations/${chatId}/toggle-hide`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({performedBy:isAdmin?'admin':employeeName})});
+      if(r.ok){fetchDirectChats();fetchBusinessChats();toast({title:'Chat visibility updated'});}else toast({title:'Error',variant:'destructive'});
+    }catch{toast({title:'Error',variant:'destructive'});}
+  };
+
+  // ============ BULK HIDE ============
+  const handleBulkHide = async () => {
+    if(bulkHideSelection.size===0) return;
+    try{const r=await fetch('/api/bulk-hide',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:bulkHideType,ids:Array.from(bulkHideSelection),hide:true,performedBy:'admin'})});
+      if(r.ok){fetchProjects();fetchDirectChats();fetchBusinessChats();setShowBulkHide(false);setBulkHideSelection(new Set());toast({title:`${bulkHideSelection.size} items hidden`});}
+      else toast({title:'Error',variant:'destructive'});
+    }catch{toast({title:'Error',variant:'destructive'});}
+  };
+
+  // ============ AUDIT LOG FETCH (moved to fetchers section above) ============
+
+  // ============ ADMIN PASSWORD RESET ============
+  const handleAdminResetRequest = async () => {
+    try{const r=await fetch('/api/admin/request-password-reset',{method:'POST'});
+      if(r.ok){const d=await r.json();setGeneratedOtp(d.otp||'');setAdminResetStep('verify');toast({title:'OTP Generated',description:`OTP: ${d.otp} (shown here since email is not configured)`});}
+      else toast({title:'Error',variant:'destructive'});
+    }catch{toast({title:'Error',variant:'destructive'});}
+  };
+  const handleAdminResetVerify = async () => {
+    if(!adminResetOtp.trim()||!adminResetNewPass.trim()){toast({title:'Required',description:'Enter OTP and new password',variant:'destructive'});return;}
+    try{const r=await fetch('/api/admin/verify-password-reset',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({otp:adminResetOtp.trim(),newPassword:adminResetNewPass.trim()})});
+      if(r.ok){toast({title:'Password Reset Successfully'});setShowAdminResetPassword(false);setAdminResetOtp('');setAdminResetNewPass('');setAdminResetStep('request');setGeneratedOtp('');}
+      else{const d=await r.json();toast({title:'Error',description:d.error||'Invalid OTP',variant:'destructive'});}
+    }catch{toast({title:'Error',variant:'destructive'});}
+  };
+
+  // ============ ADMIN EMAIL UPDATE ============
+  const handleUpdateEmail = async () => {
+    if(!adminNewEmail.trim()||!adminEmailPassword.trim()){toast({title:'Required',description:'Enter email and current password',variant:'destructive'});return;}
+    try{const r=await fetch('/api/admin/update-email',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:adminNewEmail.trim(),password:adminEmailPassword.trim()})});
+      if(r.ok){toast({title:'Email Updated'});setShowUpdateEmail(false);setAdminNewEmail('');setAdminEmailPassword('');}
+      else{const d=await r.json();toast({title:'Error',description:d.error||'Failed',variant:'destructive'});}
+    }catch{toast({title:'Error',variant:'destructive'});}
+  };
+
+  // ============ TRAINING RETAKE ============
+  const handleRequestRetake = async (assignmentId:string) => {
+    try{const r=await fetch(`/api/trainings/assignments/${assignmentId}/request-retake`,{method:'POST'});
+      if(r.ok){toast({title:'Retake Requested',description:'Waiting for admin approval'});fetchEmployeeTrainings();}
+      else toast({title:'Error',variant:'destructive'});
+    }catch{toast({title:'Error',variant:'destructive'});}
+  };
+  const handleApproveRetake = async (assignmentId:string) => {
+    try{const r=await fetch(`/api/trainings/assignments/${assignmentId}/approve-retake`,{method:'POST'});
+      if(r.ok){toast({title:'Retake Approved'});fetchAllAssignments();}
+      else toast({title:'Error',variant:'destructive'});
+    }catch{toast({title:'Error',variant:'destructive'});}
+  };  // ============ ADMIN PROJECT TOGGLE LOCK ============
   const handleToggleProjectLock = async (projectId:string) => {
     try{const r=await fetch(`/api/projects/${projectId}/toggle-lock`,{method:'POST'});if(r.ok){fetchProjects();toast({title:'Project visibility updated'});}else toast({title:'Error',variant:'destructive'});}catch{toast({title:'Error',variant:'destructive'});}
   };
@@ -855,8 +976,8 @@ export default function Home() {
 
   const handleAssignTraining = async () => {
     if(!assignTrainingId||selectedEmployeeIds.size===0){toast({title:'Required',description:'Select employees',variant:'destructive'});return;}
-    try{const r=await fetch('/api/trainings/assign',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({trainingId:assignTrainingId,employeeIds:Array.from(selectedEmployeeIds)})});
-      if(r.ok){toast({title:'Training Assigned'});setShowAssignTraining(false);setAssignTrainingId(null);setSelectedEmployeeIds(new Set());fetchAllAssignments();}
+    try{const r=await fetch('/api/trainings/assign',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({trainingId:assignTrainingId,employeeIds:Array.from(selectedEmployeeIds),dueDate:newTrainingDueDate||undefined})});
+      if(r.ok){toast({title:'Training Assigned'});setShowAssignTraining(false);setAssignTrainingId(null);setSelectedEmployeeIds(new Set());setNewTrainingDueDate('');fetchAllAssignments();}
       else toast({title:'Error',variant:'destructive'});
     }catch{toast({title:'Error',variant:'destructive'});}
   };
@@ -881,6 +1002,10 @@ export default function Home() {
   // ============ HELPERS ============
   const isAdmin = userRole==='admin';
   const visibleProjects = isAdmin ? projects : projects.filter(p=>!p.isLocked);
+  const visibleDirectChats = isAdmin ? directChats.filter(c=>c.mode!=='business') : directChats.filter(c=>c.mode!=='business'&&!c.isHidden);
+  const dueTrainingsCount = employeeTrainings.filter(a=>a.status==='due').length;
+  const retakeRequestedCount = allAssignments.filter(a=>a.retakeRequested&&!a.retakeApproved).length;
+  const finishedRecentlyCount = allAssignments.filter(a=>a.status==='finished').length;
 
   // ==================== LOADING ====================
   if(!mounted){
@@ -938,6 +1063,10 @@ export default function Home() {
     // Active training with video/quiz
     if(activeTraining && activeTraining.training){
       const questions = parseQuestions(activeTraining.training.questions||'[]');
+      const isFinished = activeTraining.status==='finished';
+      const canRetake = activeTraining.attempts < activeTraining.maxAttempts;
+      const hasRetakeRequest = activeTraining.retakeRequested;
+      const retakeApproved = activeTraining.retakeApproved;
       return (
         <div className="min-h-screen flex flex-col bg-background">
           <header className="border-b p-3 flex items-center gap-3">
@@ -948,7 +1077,45 @@ export default function Home() {
             </Badge>
           </header>
           <div className="flex-1 overflow-y-auto p-4 max-w-3xl mx-auto w-full">
-            {!quizMode ? (
+            {/* Finished training: show results only (no video) */}
+            {isFinished && !quizMode ? (
+              <div className="space-y-4">
+                <div className="text-center p-4 bg-muted/50 rounded-lg">
+                  <Award className="h-10 w-10 mx-auto mb-2 text-amber-500"/>
+                  <h3 className="text-xl font-bold">Training Completed!</h3>
+                  <p className="text-2xl font-bold mt-2">{activeTraining.score}%</p>
+                  <p className="text-sm text-muted-foreground">Score • Attempt {activeTraining.attempts} of {activeTraining.maxAttempts}</p>
+                  {activeTraining.dueDate && <p className="text-xs text-muted-foreground mt-1">Due: {new Date(activeTraining.dueDate).toLocaleDateString()}</p>}
+                </div>
+                {questions.length>0 && (
+                  <div className="space-y-2">
+                    <h4 className="font-semibold text-sm">Review Answers</h4>
+                    {questions.map((q,i)=>{
+                      const userAnswer = activeTraining.answers ? (JSON.parse(activeTraining.answers||'{}')[i]||'') : '';
+                      const isCorrect = userAnswer===q.correctAnswer;
+                      return(
+                        <div key={i} className={`p-3 rounded-lg border ${isCorrect?'border-green-500/50 bg-green-500/5':'border-red-500/50 bg-red-500/5'}`}>
+                          <p className="font-medium text-sm mb-1">Q{i+1}: {q.question}</p>
+                          <p className="text-xs">Your answer: <span className={isCorrect?'text-green-600':'text-red-600'}>{q.options[userAnswer as keyof typeof q.options]||'Not answered'}</span></p>
+                          {!isCorrect&&<p className="text-xs text-green-600">Correct: {q.options[q.correctAnswer as keyof typeof q.options]}</p>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                {!canRetake && !hasRetakeRequest && (
+                  <Button variant="outline" className="w-full" onClick={()=>handleRequestRetake(activeTraining.id)}>Request Retake</Button>
+                )}
+                {hasRetakeRequest && !retakeApproved && (
+                  <div className="text-center p-3 bg-amber-500/10 rounded-lg border border-amber-500/30">
+                    <p className="text-sm text-amber-600">Retake requested — waiting for admin approval</p>
+                  </div>
+                )}
+                {retakeApproved && (
+                  <Button className="w-full" onClick={()=>{setQuizMode(true);}}>Start Retake Quiz</Button>
+                )}
+              </div>
+            ) : !quizMode ? (
               <div className="space-y-4">
                 <div className="rounded-lg overflow-hidden bg-black aspect-video">
                   {activeTraining.training.videoUrl ? (
@@ -958,13 +1125,19 @@ export default function Home() {
                   )}
                 </div>
                 <p className="text-sm text-muted-foreground">{activeTraining.training.description}</p>
-                {questions.length > 0 && (
+                {activeTraining.dueDate && <p className="text-xs text-muted-foreground"><Clock className="h-3 w-3 inline mr-1"/>Due: {new Date(activeTraining.dueDate).toLocaleDateString()}</p>}
+                {questions.length > 0 && canRetake && (
                   <Button onClick={()=>setQuizMode(true)} disabled={!activeTraining.training.videoUrl&&!videoWatched} className="w-full">
                     <Play className="h-4 w-4 mr-2"/>Start Quiz ({questions.length} questions, 10 min)
                   </Button>
                 )}
-                {!activeTraining.training.videoUrl && questions.length>0 && (
-                  <Button onClick={()=>setQuizMode(true)} className="w-full"><Play className="h-4 w-4 mr-2"/>Start Quiz</Button>
+                {!canRetake && !hasRetakeRequest && questions.length>0 && (
+                  <Button variant="outline" className="w-full" onClick={()=>handleRequestRetake(activeTraining.id)}>Request Retake</Button>
+                )}
+                {hasRetakeRequest && !retakeApproved && (
+                  <div className="text-center p-3 bg-amber-500/10 rounded-lg border border-amber-500/30">
+                    <p className="text-sm text-amber-600">Retake requested — waiting for admin approval</p>
+                  </div>
                 )}
               </div>
             ) : (
@@ -986,30 +1159,203 @@ export default function Home() {
           <div className="p-4 max-w-3xl mx-auto w-full space-y-3">
             {employeeTrainings.length===0?(
               <div className="text-center py-12 text-muted-foreground"><GraduationCap className="h-10 w-10 mx-auto mb-2 opacity-30"/><p className="text-sm">No training assigned yet</p></div>
-            ):employeeTrainings.map(a=>(
-              <Card key={a.id} className="cursor-pointer hover:border-primary/50 transition-colors" onClick={()=>handleStartTraining(a)}>
+            ):employeeTrainings.map(a=>{
+              const isOverdue = a.dueDate && new Date(a.dueDate) < new Date() && a.status!=='finished';
+              return(
+              <Card key={a.id} className={`cursor-pointer hover:border-primary/50 transition-colors ${isOverdue?'border-red-500/50':''}`} onClick={()=>handleStartTraining(a)}>
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between mb-2">
                     <h3 className="font-semibold text-sm">{a.training?.title||'Training'}</h3>
-                    <Badge variant={a.status==='due'?'secondary':a.status==='in_progress'?'default':'outline'} className="text-[10px]">
-                      {a.status==='due'?'Due':a.status==='in_progress'?'In Progress':'Finished'}
+                    <Badge variant={isOverdue?'destructive':a.status==='due'?'secondary':a.status==='in_progress'?'default':'outline'} className="text-[10px]">
+                      {isOverdue?'Overdue':a.status==='due'?'Due':a.status==='in_progress'?'In Progress':'Finished'}
                     </Badge>
                   </div>
                   <div className="flex items-center gap-3 text-xs text-muted-foreground">
                     <span>{a.training?.category}</span>
                     <span>{a.training?.difficulty}</span>
+                    {a.dueDate&&<span className={isOverdue?'text-red-500 font-semibold':''}><Clock className="h-3 w-3 inline mr-0.5"/>Due: {new Date(a.dueDate).toLocaleDateString()}</span>}
                     {a.score!==null&&<span className="font-semibold text-foreground">Score: {a.score}%</span>}
+                    {a.retakeRequested&&!a.retakeApproved&&<Badge variant="outline" className="text-[9px] border-amber-500/50 text-amber-600">Retake Pending</Badge>}
                   </div>
                 </CardContent>
               </Card>
-            ))}
+            );})}
           </div>
         </ScrollArea>
       </div>
     );
   }
 
-  // ==================== MAIN APP ====================
+  // ==================== FULL-PAGE ADMIN DASHBOARD ====================
+  if(activeView==='dashboard' && userRole==='admin'){
+    return (
+      <div className="min-h-screen flex flex-col bg-background">
+        <header className="border-b p-3 sm:p-4 flex items-center gap-3 bg-card">
+          <Button variant="ghost" size="sm" onClick={()=>setActiveView('chat')}><X className="h-4 w-4 mr-1"/>Back to Chat</Button>
+          <h1 className="text-lg font-bold flex items-center gap-2"><Settings className="h-5 w-5"/>Admin Dashboard</h1>
+          <Badge variant="default" className="text-[10px]">Admin</Badge>
+        </header>
+        <Tabs value={adminTab} onValueChange={setAdminTab} className="flex-1 flex flex-col min-h-0">
+          <div className="px-4 border-b bg-card"><TabsList className="h-10">
+            <TabsTrigger value="overview" className="text-xs gap-1"><BarChart3 className="h-3 w-3"/>Overview</TabsTrigger>
+            <TabsTrigger value="users" className="text-xs gap-1"><Users className="h-3 w-3"/>Users</TabsTrigger>
+            <TabsTrigger value="trainings" className="text-xs gap-1"><GraduationCap className="h-3 w-3"/>Trainings</TabsTrigger>
+            <TabsTrigger value="assignments" className="text-xs gap-1 relative"><ClipboardList className="h-3 w-3"/>Assignments{retakeRequestedCount>0&&<Badge variant="destructive" className="h-4 min-w-4 px-1 text-[8px] ml-1">{retakeRequestedCount}</Badge>}</TabsTrigger>
+            <TabsTrigger value="audit" className="text-xs gap-1"><Eye className="h-3 w-3"/>Audit Log</TabsTrigger>
+            <TabsTrigger value="settings" className="text-xs gap-1"><Settings className="h-3 w-3"/>Settings</TabsTrigger>
+          </TabsList></div>
+          <ScrollArea className="flex-1 p-4 sm:p-6">
+            {/* OVERVIEW TAB */}
+            <TabsContent value="overview" className="mt-0 max-w-5xl mx-auto">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+                <Card><CardContent className="p-4 text-center"><Users className="h-6 w-6 mx-auto mb-2 text-primary"/><p className="text-2xl font-bold">{employees.length}</p><p className="text-xs text-muted-foreground">Employees</p></CardContent></Card>
+                <Card><CardContent className="p-4 text-center"><GraduationCap className="h-6 w-6 mx-auto mb-2 text-primary"/><p className="text-2xl font-bold">{trainings.length}</p><p className="text-xs text-muted-foreground">Trainings</p></CardContent></Card>
+                <Card><CardContent className="p-4 text-center"><ClipboardList className="h-6 w-6 mx-auto mb-2 text-primary"/><p className="text-2xl font-bold">{deleteRequests.length}</p><p className="text-xs text-muted-foreground">Pending Requests</p></CardContent></Card>
+                <Card><CardContent className="p-4 text-center"><Award className="h-6 w-6 mx-auto mb-2 text-primary"/><p className="text-2xl font-bold">{allAssignments.filter(a=>a.status==='finished').length}</p><p className="text-xs text-muted-foreground">Completed</p></CardContent></Card>
+              </div>
+              <h3 className="font-semibold mb-3">Recent Activity</h3>
+              {auditLogs.length===0?<p className="text-sm text-muted-foreground">No activity recorded yet</p>:
+              <div className="space-y-2 max-h-96 overflow-y-auto">{auditLogs.slice(0,20).map(log=>(
+                <div key={log.id} className="flex items-center gap-3 p-2 rounded-lg border text-xs">
+                  <Badge variant="outline" className="text-[9px] flex-shrink-0">{log.action}</Badge>
+                  <span className="text-muted-foreground">{log.targetType}</span>
+                  <span className="font-medium truncate flex-1">{log.targetName}</span>
+                  {log.oldValue&&<span className="text-muted-foreground">from "{log.oldValue}" to "{log.newValue}"</span>}
+                  <span className="text-muted-foreground flex-shrink-0">by {log.performedBy}</span>
+                  <span className="text-muted-foreground flex-shrink-0">{new Date(log.createdAt).toLocaleString()}</span>
+                </div>
+              ))}</div>}
+            </TabsContent>
+
+            {/* USERS TAB */}
+            <TabsContent value="users" className="mt-0 max-w-5xl mx-auto">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-semibold">Employees ({employees.length})</h3>
+                <Button className="gap-1" onClick={()=>setShowNewEmployee(true)}><Plus className="h-4 w-4"/>Add Employee</Button>
+              </div>
+              {employees.length===0?<p className="text-muted-foreground text-center py-8">No employees yet</p>:
+              <div className="space-y-3">{employees.map(emp=>(
+                <div key={emp.id} className="flex items-center justify-between p-4 rounded-lg border">
+                  <div><p className="font-medium">{emp.name}</p><p className="text-xs text-muted-foreground">ID: {emp.employeeId}</p></div>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" className="gap-1" onClick={()=>{setResetEmpId(emp.id);setShowResetPassword(true);}}><KeyRound className="h-3 w-3"/>Reset Pass</Button>
+                    <AlertDialog><AlertDialogTrigger asChild><Button size="sm" variant="ghost" className="text-destructive hover:text-destructive"><Trash2 className="h-3 w-3"/></Button></AlertDialogTrigger>
+                      <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Delete {emp.name}?</AlertDialogTitle><AlertDialogDescription>This will remove the employee and all their training assignments.</AlertDialogDescription></AlertDialogHeader>
+                      <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={()=>handleDeleteEmployee(emp.id)}>Delete</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
+                    </AlertDialog>
+                  </div>
+                </div>
+              ))}</div>}
+            </TabsContent>
+
+            {/* TRAININGS TAB */}
+            <TabsContent value="trainings" className="mt-0 max-w-5xl mx-auto">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-semibold">Trainings ({trainings.length})</h3>
+                <Button className="gap-1" onClick={()=>setShowNewTraining(true)}><Plus className="h-4 w-4"/>New Training</Button>
+              </div>
+              {trainings.length===0?<p className="text-muted-foreground text-center py-8">No trainings yet</p>:
+              <div className="space-y-3">{trainings.map(t=>(
+                <div key={t.id} className="flex items-center justify-between p-4 rounded-lg border">
+                  <div><p className="font-medium">{t.title}</p><div className="flex items-center gap-2 text-xs text-muted-foreground mt-1"><span>{t.category}</span><Badge variant="outline" className="text-[9px]">{t.difficulty}</Badge><span>{parseQuestions(t.questions||'[]').length} questions</span></div></div>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" className="gap-1" onClick={()=>{setAssignTrainingId(t.id);setSelectedEmployeeIds(new Set());setShowAssignTraining(true);}}><Users className="h-3 w-3"/>Assign</Button>
+                    <AlertDialog><AlertDialogTrigger asChild><Button size="sm" variant="ghost" className="text-destructive hover:text-destructive"><Trash2 className="h-3 w-3"/></Button></AlertDialogTrigger>
+                      <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Delete training?</AlertDialogTitle></AlertDialogHeader>
+                      <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={async()=>{await fetch(`/api/trainings/${t.id}`,{method:'DELETE'});fetchTrainings();fetchAllAssignments();toast({title:'Deleted'});}}>Delete</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
+                    </AlertDialog>
+                  </div>
+                </div>
+              ))}</div>}
+            </TabsContent>
+
+            {/* ASSIGNMENTS TAB */}
+            <TabsContent value="assignments" className="mt-0 max-w-5xl mx-auto">
+              <h3 className="font-semibold mb-4">All Assignments</h3>
+              {allAssignments.length===0?<p className="text-muted-foreground text-center py-8">No assignments yet</p>:
+              <div className="space-y-3">{allAssignments.map(a=>(
+                <div key={a.id} className="flex items-center justify-between p-4 rounded-lg border">
+                  <div>
+                    <p className="font-medium">{a.training?.title||'Training'}</p>
+                    <p className="text-xs text-muted-foreground">Employee: {a.employee?.name||a.employeeId} • Attempt: {a.attempts}/{a.maxAttempts}</p>
+                    {a.dueDate&&<p className="text-xs text-muted-foreground">Due: {new Date(a.dueDate).toLocaleDateString()}</p>}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant={a.status==='due'?'secondary':a.status==='in_progress'?'default':'outline'} className="text-[10px]">{a.status}</Badge>
+                    {a.score!==null&&<span className="text-xs font-semibold">{a.score}%</span>}
+                    {a.retakeRequested&&!a.retakeApproved&&<Button size="sm" variant="outline" className="h-6 text-[10px] gap-1 border-amber-500/50 text-amber-600" onClick={()=>handleApproveRetake(a.id)}><CheckCircle2 className="h-3 w-3"/>Approve Retake</Button>}
+                    {a.retakeRequested&&<Badge variant="outline" className="text-[9px] border-amber-500/50 text-amber-600">Retake Requested</Badge>}
+                  </div>
+                </div>
+              ))}</div>}
+            </TabsContent>
+
+            {/* AUDIT LOG TAB */}
+            <TabsContent value="audit" className="mt-0 max-w-5xl mx-auto">
+              <h3 className="font-semibold mb-4">Audit Log</h3>
+              {auditLogs.length===0?<p className="text-muted-foreground text-center py-8">No audit logs yet</p>:
+              <div className="space-y-2">{auditLogs.map(log=>(
+                <div key={log.id} className="flex items-center gap-3 p-3 rounded-lg border text-xs">
+                  <Badge variant="outline" className="text-[9px] flex-shrink-0">{log.action}</Badge>
+                  <span className="text-muted-foreground w-20 flex-shrink-0">{log.targetType}</span>
+                  <span className="font-medium truncate flex-1">{log.targetName}</span>
+                  {log.oldValue&&<span className="text-muted-foreground">"{log.oldValue}" → "{log.newValue}"</span>}
+                  <span className="text-muted-foreground flex-shrink-0">by {log.performedBy}</span>
+                  <span className="text-muted-foreground flex-shrink-0 w-36 text-right">{new Date(log.createdAt).toLocaleString()}</span>
+                </div>
+              ))}</div>}
+            </TabsContent>
+
+            {/* SETTINGS TAB */}
+            <TabsContent value="settings" className="mt-0 max-w-3xl mx-auto">
+              <div className="space-y-6">
+                <Card>
+                  <CardHeader><CardTitle className="text-sm">Change Password</CardTitle></CardHeader>
+                  <CardContent className="space-y-3">
+                    <div><Label>Current Password</Label><Input value={currentPassword} onChange={e=>setCurrentPassword(e.target.value)} type="password"/></div>
+                    <div><Label>New Password</Label><Input value={newPassword} onChange={e=>setNewPassword(e.target.value)} type="password"/></div>
+                    <Button onClick={handleChangePassword} disabled={!currentPassword.trim()||!newPassword.trim()}>Change Password</Button>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader><CardTitle className="text-sm">Reset Password (OTP to Email)</CardTitle></CardHeader>
+                  <CardContent className="space-y-3">
+                    {adminResetStep==='request'?(
+                      <div><p className="text-xs text-muted-foreground mb-2">An OTP will be generated. In production, this would be sent to your admin email.</p><Button onClick={handleAdminResetRequest}>Generate OTP</Button></div>
+                    ):(
+                      <div className="space-y-3">
+                        <div><Label>OTP</Label><Input value={adminResetOtp} onChange={e=>setAdminResetOtp(e.target.value)} placeholder="Enter OTP"/></div>
+                        <div><Label>New Password</Label><Input value={adminResetNewPass} onChange={e=>setAdminResetNewPass(e.target.value)} type="password"/></div>
+                        <Button onClick={handleAdminResetVerify} disabled={!adminResetOtp.trim()||!adminResetNewPass.trim()}>Verify & Reset</Button>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader><CardTitle className="text-sm">Update Admin Email</CardTitle></CardHeader>
+                  <CardContent className="space-y-3">
+                    <div><Label>New Email</Label><Input value={adminNewEmail} onChange={e=>setAdminNewEmail(e.target.value)} placeholder="new-email@example.com" type="email"/></div>
+                    <div><Label>Current Password</Label><Input value={adminEmailPassword} onChange={e=>setAdminEmailPassword(e.target.value)} type="password"/></div>
+                    <Button onClick={handleUpdateEmail} disabled={!adminNewEmail.trim()||!adminEmailPassword.trim()}>Update Email</Button>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader><CardTitle className="text-sm">Bulk Hide</CardTitle></CardHeader>
+                  <CardContent className="space-y-3">
+                    <p className="text-xs text-muted-foreground">Hide multiple chats or projects from employees at once.</p>
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm" onClick={()=>{setBulkHideType('direct_chats');setBulkHideSelection(new Set(visibleDirectChats.map(c=>c.id)));setShowBulkHide(true);}}>Hide All Direct Chats</Button>
+                      <Button variant="outline" size="sm" onClick={()=>{setBulkHideType('projects');setBulkHideSelection(new Set(visibleProjects.map(p=>p.id)));setShowBulkHide(true);}}>Hide All Projects</Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </TabsContent>
+          </ScrollArea>
+        </Tabs>
+      </div>
+    );
+  }
   const sidebarContent = (
     <div className="flex flex-col h-full">
       <div className="p-3 sm:p-4 border-b">
@@ -1027,7 +1373,10 @@ export default function Home() {
 
         {isAdmin && (
           <div className="flex gap-1 mb-2 flex-wrap">
-            <Button size="sm" variant="outline" className="h-7 text-[10px] gap-1" onClick={()=>setShowAdminDashboard(true)}><Settings className="h-3 w-3"/>Dashboard</Button>
+            <Button size="sm" variant="outline" className="h-7 text-[10px] gap-1 relative" onClick={()=>{setActiveView('dashboard');fetchAuditLogs();}}>
+              <Settings className="h-3 w-3"/>Dashboard
+              {(retakeRequestedCount>0||deleteRequests.length>0)&&<Badge variant="destructive" className="h-4 min-w-4 px-1 text-[8px] absolute -top-1 -right-1">{retakeRequestedCount+deleteRequests.length}</Badge>}
+            </Button>
             <Button size="sm" variant="outline" className="h-7 text-[10px] gap-1 relative" onClick={()=>setShowDeleteRequests(true)}>
               <ClipboardList className="h-3 w-3"/>Requests
               {deleteRequests.length>0&&<Badge variant="destructive" className="h-4 min-w-4 px-1 text-[8px] absolute -top-1 -right-1">{deleteRequests.length}</Badge>}
@@ -1039,10 +1388,13 @@ export default function Home() {
 
         {!isAdmin && (
           <div className="space-y-1.5 mb-2">
-            {lockedProjectId && (
-              <Button size="sm" variant="outline" className="w-full h-7 text-[10px] gap-1.5 border-emerald-500/50 text-emerald-600 hover:bg-emerald-500/10" onClick={handleEndAndSave}><Unlock className="h-3 w-3"/>End & Save</Button>
+            {(lockedProjectId||lockedDirectChatId) && (
+              <Button size="sm" variant="outline" className="w-full h-7 text-[10px] gap-1.5 border-emerald-500/50 text-emerald-600 hover:bg-emerald-500/10" onClick={lockedProjectId?handleEndAndSave:handleEndDirectChat}><Unlock className="h-3 w-3"/>End & Save</Button>
             )}
-            <Button size="sm" variant="outline" className="w-full h-7 text-[10px] gap-1.5" onClick={()=>setActiveView('training')}><GraduationCap className="h-3 w-3"/>My Training</Button>
+            <Button size="sm" variant="outline" className="w-full h-7 text-[10px] gap-1.5 relative" onClick={()=>setActiveView('training')}>
+              <GraduationCap className="h-3 w-3"/>My Training
+              {dueTrainingsCount>0&&<Badge variant="destructive" className="h-4 min-w-4 px-1 text-[8px] absolute -top-1 -right-1">{dueTrainingsCount}</Badge>}
+            </Button>
             <Button size="sm" variant="ghost" className="w-full h-7 text-[10px] gap-1 text-destructive hover:text-destructive" onClick={handleLogout}><LogOut className="h-3 w-3"/>Logout</Button>
           </div>
         )}
@@ -1059,28 +1411,21 @@ export default function Home() {
           {/* Business Chats (Admin only) */}
           {isAdmin && businessChats.length>0 && (
             <div className="mb-3">
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-2 mb-1">Business Agent</p>
+              <div className="flex items-center justify-between px-2 mb-1">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Business Agent</p>
+              </div>
               {businessChats.map(c=>(
-                <div key={c.id} className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md cursor-pointer text-xs transition-colors group ${selectedBusinessChatId===c.id?'bg-primary/10 text-primary font-medium':'text-muted-foreground hover:text-foreground hover:bg-muted'}`}
-                  onClick={()=>{setSelectedBusinessChatId(c.id);setSelectedDirectChatId(null);setSelectedProjectId(null);setSelectedConversationId(null);if(isMobile)setMobileSheetOpen(false);}}>
+                <div key={c.id} className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md cursor-pointer text-xs transition-colors group ${selectedBusinessChatId===c.id?'bg-primary/10 text-primary font-medium':c.isHidden?'opacity-50':'text-muted-foreground hover:text-foreground hover:bg-muted'}`}
+                  onClick={()=>{setSelectedBusinessChatId(c.id);setSelectedDirectChatId(null);setSelectedProjectId(null);setSelectedConversationId(null);setChatMode('business');if(isMobile)setMobileSheetOpen(false);}}>
                   <Briefcase className="h-3 w-3 flex-shrink-0 text-amber-500"/>
-                  <span className="truncate flex-1">{c.title}</span>
-                  <Button variant="ghost" size="icon" className="h-5 w-5 opacity-0 group-hover:opacity-100" onClick={e=>{e.stopPropagation();/* delete business chat */}}><X className="h-2.5 w-2.5"/></Button>
-                </div>
-              ))}
-              <div className="border-t my-2"/>
-            </div>
-          )}
-
-          {/* Direct Chats */}
-          {directChats.filter(c=>c.mode!=='business').length>0 && (
-            <div className="mb-3">
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-2 mb-1">Direct Chats</p>
-              {directChats.filter(c=>c.mode!=='business').map(c=>(
-                <div key={c.id} className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md cursor-pointer text-xs transition-colors group ${selectedDirectChatId===c.id?'bg-primary/10 text-primary font-medium':'text-muted-foreground hover:text-foreground hover:bg-muted'}`}
-                  onClick={()=>{setSelectedDirectChatId(c.id);setSelectedProjectId(null);setSelectedConversationId(null);setSelectedBusinessChatId(null);if(isMobile)setMobileSheetOpen(false);}}>
-                  <Sparkles className="h-3 w-3 flex-shrink-0"/>
-                  <span className="truncate flex-1">{c.title}</span>
+                  {editingId===c.id&&editingType==='chat'?(
+                    <input className="flex-1 bg-background border rounded px-1 py-0 text-xs min-w-0" value={editingValue} onChange={e=>setEditingValue(e.target.value)} onBlur={handleSaveRename} onKeyDown={e=>{if(e.key==='Enter')handleSaveRename();if(e.key==='Escape')setEditingId(null);}} autoFocus/>
+                  ):(
+                    <span className="truncate flex-1" onDoubleClick={e=>{e.stopPropagation();handleStartRename(c.id,'chat',c.title);}}>{c.title}</span>
+                  )}
+                  <Badge className="h-4 px-1 text-[8px] bg-amber-500/20 text-amber-600 border-amber-500/30 flex-shrink-0">BA</Badge>
+                  {isAdmin&&<Button variant="ghost" size="icon" className={`h-5 w-5 opacity-0 group-hover:opacity-100 ${c.isHidden?'text-red-500':'text-muted-foreground'}`} onClick={e=>{e.stopPropagation();handleToggleChatHide(c.id);}} title={c.isHidden?'Unhide':'Hide'}><EyeOff className="h-2.5 w-2.5"/></Button>}
+                  <Button variant="ghost" size="icon" className="h-5 w-5 opacity-0 group-hover:opacity-100" onClick={e=>{e.stopPropagation();handleStartRename(c.id,'chat',c.title);}}><Pencil className="h-2.5 w-2.5"/></Button>
                   <Button variant="ghost" size="icon" className="h-5 w-5 opacity-0 group-hover:opacity-100" onClick={e=>{e.stopPropagation();handleDeleteDirectChat(c.id);}}><X className="h-2.5 w-2.5"/></Button>
                 </div>
               ))}
@@ -1088,8 +1433,41 @@ export default function Home() {
             </div>
           )}
 
+          {/* Direct Chats */}
+          {visibleDirectChats.length>0 && (
+            <div className="mb-3">
+              <div className="flex items-center justify-between px-2 mb-1">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Direct Chats</p>
+                {isAdmin&&<Button variant="ghost" size="icon" className="h-4 w-4" onClick={()=>{setBulkHideType('direct_chats');setBulkHideSelection(new Set(visibleDirectChats.map(c=>c.id)));setShowBulkHide(true);}} title="Bulk hide"><EyeOff className="h-2.5 w-2.5"/></Button>}
+              </div>
+              {visibleDirectChats.map(c=>{
+                const lockInfo=directChatLocks[c.id];const isLockedByOther=lockInfo&&lockInfo.lockedBy!==employeeName&&!isAdmin;
+                return(
+                <div key={c.id} className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md cursor-pointer text-xs transition-colors group ${selectedDirectChatId===c.id?'bg-primary/10 text-primary font-medium':c.isHidden?'opacity-50':isLockedByOther?'opacity-60':'text-muted-foreground hover:text-foreground hover:bg-muted'}`}
+                  onClick={()=>handleSelectDirectChat(c.id)}>
+                  <Sparkles className="h-3 w-3 flex-shrink-0 text-emerald-500"/>
+                  {editingId===c.id&&editingType==='chat'?(
+                    <input className="flex-1 bg-background border rounded px-1 py-0 text-xs min-w-0" value={editingValue} onChange={e=>setEditingValue(e.target.value)} onBlur={handleSaveRename} onKeyDown={e=>{if(e.key==='Enter')handleSaveRename();if(e.key==='Escape')setEditingId(null);}} autoFocus/>
+                  ):(
+                    <span className="truncate flex-1" onDoubleClick={e=>{e.stopPropagation();handleStartRename(c.id,'chat',c.title);}}>{c.title}</span>
+                  )}
+                  <Badge className="h-4 px-1 text-[8px] bg-emerald-500/20 text-emerald-600 border-emerald-500/30 flex-shrink-0">Direct</Badge>
+                  {lockInfo&&<Badge variant="outline" className="h-4 px-1 text-[8px] gap-0.5 border-green-500/50 text-green-600 flex-shrink-0 bg-green-500/10"><span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse"/>{lockInfo.lockedBy}</Badge>}
+                  {c.isHidden&&isAdmin&&<Badge variant="outline" className="h-4 px-1 text-[8px] border-red-500/50 text-red-500 bg-red-500/10">Hidden</Badge>}
+                  {isAdmin&&<Button variant="ghost" size="icon" className={`h-5 w-5 opacity-0 group-hover:opacity-100 ${c.isHidden?'text-red-500':'text-muted-foreground'}`} onClick={e=>{e.stopPropagation();handleToggleChatHide(c.id);}} title={c.isHidden?'Unhide':'Hide'}><EyeOff className="h-2.5 w-2.5"/></Button>}
+                  <Button variant="ghost" size="icon" className="h-5 w-5 opacity-0 group-hover:opacity-100" onClick={e=>{e.stopPropagation();handleStartRename(c.id,'chat',c.title);}}><Pencil className="h-2.5 w-2.5"/></Button>
+                  <Button variant="ghost" size="icon" className="h-5 w-5 opacity-0 group-hover:opacity-100" onClick={e=>{e.stopPropagation();handleDeleteDirectChat(c.id);}}><X className="h-2.5 w-2.5"/></Button>
+                </div>
+              );})}
+              <div className="border-t my-2"/>
+            </div>
+          )}
+
           {/* Projects */}
-          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-2 mb-1">Projects</p>
+          <div className="flex items-center justify-between px-2 mb-1">
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Projects</p>
+            {isAdmin&&<Button variant="ghost" size="icon" className="h-4 w-4" onClick={()=>{setBulkHideType('projects');setBulkHideSelection(new Set(visibleProjects.map(p=>p.id)));setShowBulkHide(true);}} title="Bulk hide"><EyeOff className="h-2.5 w-2.5"/></Button>}
+          </div>
           {visibleProjects.length===0?(
             <div className="text-center py-4 text-muted-foreground text-sm"><FolderOpen className="h-8 w-8 mx-auto mb-2 opacity-30"/><p className="text-xs">No projects yet</p></div>
           ):visibleProjects.map(project=>{
@@ -1097,16 +1475,22 @@ export default function Home() {
             return(
               <div key={project.id} className="mb-0.5">
                 <div className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg cursor-pointer transition-colors group ${selectedProjectId===project.id?'bg-primary/10 text-primary':'hover:bg-muted'} ${isLockedByOther?'opacity-70':''}`}
-                  onClick={()=>{wrappedSetSelectedProjectId(project.id);setSelectedDirectChatId(null);setSelectedBusinessChatId(null);toggleProjectExpand(project.id);if(isMobile)setMobileSheetOpen(false);}}>
+                  onClick={()=>{wrappedSetSelectedProjectId(project.id);setSelectedDirectChatId(null);setSelectedBusinessChatId(null);setChatMode('project');toggleProjectExpand(project.id);if(isMobile)setMobileSheetOpen(false);}}>
                   {expandedProjects.has(project.id)&&selectedProjectId===project.id?<ChevronDown className="h-3.5 w-3.5 flex-shrink-0"/>:<ChevronRight className="h-3.5 w-3.5 flex-shrink-0"/>}
                   <FolderOpen className="h-4 w-4 flex-shrink-0"/>
-                  <span className="text-xs sm:text-sm font-medium truncate flex-1">{project.name}</span>
+                  {editingId===project.id&&editingType==='project'?(
+                    <input className="flex-1 bg-background border rounded px-1 py-0 text-xs min-w-0" value={editingValue} onChange={e=>setEditingValue(e.target.value)} onBlur={handleSaveRename} onKeyDown={e=>{if(e.key==='Enter')handleSaveRename();if(e.key==='Escape')setEditingId(null);}} autoFocus/>
+                  ):(
+                    <span className="text-xs sm:text-sm font-medium truncate flex-1" onDoubleClick={e=>{e.stopPropagation();handleStartRename(project.id,'project',project.name);}}>{project.name}</span>
+                  )}
                   {/* Admin lock toggle */}
                   {isAdmin && (
                     <Button variant="ghost" size="icon" className={`h-5 w-5 ${project.isLocked?'text-red-500':'text-muted-foreground'}`} onClick={e=>{e.stopPropagation();handleToggleProjectLock(project.id);}} title={project.isLocked?'Hidden from employees':'Visible to employees'}>
                       {project.isLocked?<EyeOff className="h-3 w-3"/>:<Eye className="h-3 w-3"/>}
                     </Button>
                   )}
+                  {/* Rename button */}
+                  <Button variant="ghost" size="icon" className="h-5 w-5 opacity-0 group-hover:opacity-100 text-muted-foreground" onClick={e=>{e.stopPropagation();handleStartRename(project.id,'project',project.name);}} title="Rename"><Pencil className="h-2.5 w-2.5"/></Button>
                   {/* Live indicator */}
                   {isLocked && <Badge variant="outline" className="h-4 px-1 text-[8px] gap-0.5 border-green-500/50 text-green-600 flex-shrink-0 bg-green-500/10"><span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse"/>{lockInfo.lockedBy}</Badge>}
                   {/* Admin locked badge */}
@@ -1153,8 +1537,9 @@ export default function Home() {
     </div>
   );
 
-  const chatHeader = selectedBusinessChatId ? 'Trishul B.A. — Business Agent' : selectedDirectChatId ? 'Direct AI Chat' : currentProject?.name || 'Trishul AI Helper';
-  const hasActiveChat = !!(selectedBusinessChatId||selectedDirectChatId||selectedConversationId||messages.length>0);
+  const currentChatMode = selectedBusinessChatId ? 'business' : selectedDirectChatId ? 'direct' : selectedProjectId ? 'project' : chatMode;
+  const chatHeader = currentChatMode==='business' ? 'Trishul B.A. — Business Agent' : currentChatMode==='direct' ? 'Direct AI Chat' : currentProject?.name || 'Trishul AI Helper';
+  const hasActiveChat = chatMode!=='none'||!!(selectedBusinessChatId||selectedDirectChatId||selectedConversationId||messages.length>0);
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
@@ -1173,17 +1558,17 @@ export default function Home() {
         {/* Chat Area */}
         <div className="flex-1 flex flex-col min-w-0">
           {/* Header */}
-          <div className="border-b p-2 sm:p-3 flex items-center gap-2">
+          <div className={`border-b p-2 sm:p-3 flex items-center gap-2 ${currentChatMode==='business'?'bg-amber-500/5 border-amber-500/20':currentChatMode==='direct'?'bg-emerald-500/5 border-emerald-500/20':''}`}>
             {isMobile && <Button variant="ghost" size="icon" className="h-8 w-8" onClick={()=>setMobileSheetOpen(true)}><Menu className="h-4 w-4"/></Button>}
             {!isMobile && <Button variant="ghost" size="icon" className="h-8 w-8" onClick={()=>setSidebarOpen(!sidebarOpen)}><Menu className="h-4 w-4"/></Button>}
             <div className="flex-1 min-w-0">
               <h2 className="text-sm font-semibold truncate flex items-center gap-2">
-                {selectedBusinessChatId && <Briefcase className="h-4 w-4 text-amber-500 flex-shrink-0"/>}
-                {selectedDirectChatId && !selectedBusinessChatId && <Sparkles className="h-4 w-4 flex-shrink-0"/>}
+                {currentChatMode==='business' && <><Briefcase className="h-4 w-4 text-amber-500 flex-shrink-0"/><Badge className="bg-amber-500/20 text-amber-600 border-amber-500/30 text-[10px]">BA</Badge></>}
+                {currentChatMode==='direct' && !selectedBusinessChatId && <><Sparkles className="h-4 w-4 text-emerald-500 flex-shrink-0"/><Badge className="bg-emerald-500/20 text-emerald-600 border-emerald-500/30 text-[10px]">Direct</Badge></>}
                 {chatHeader}
               </h2>
             </div>
-            {lockedProjectId && !isAdmin && <Badge variant="outline" className="text-[9px] gap-1 border-emerald-500/50 text-emerald-600"><Lock className="h-2.5 w-2.5"/>Locked</Badge>}
+            {(lockedProjectId||lockedDirectChatId) && !isAdmin && <Badge variant="outline" className="text-[9px] gap-1 border-emerald-500/50 text-emerald-600"><Lock className="h-2.5 w-2.5"/>Locked</Badge>}
             {codePanelOpen && <Button variant="ghost" size="icon" className="h-7 w-7" onClick={()=>setCodePanelOpen(false)}><X className="h-3.5 w-3.5"/></Button>}
           </div>
 
@@ -1377,71 +1762,28 @@ export default function Home() {
         </DialogContent>
       </Dialog>
 
-      {/* ==================== ADMIN DASHBOARD ==================== */}
-      <Dialog open={showAdminDashboard} onOpenChange={setShowAdminDashboard}>
-        <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-hidden flex flex-col p-0">
-          <DialogHeader className="p-4 pb-0"><DialogTitle className="flex items-center gap-2"><Settings className="h-5 w-5"/>Admin Dashboard</DialogTitle></DialogHeader>
-          <Tabs value={adminTab} onValueChange={setAdminTab} className="flex-1 flex flex-col min-h-0">
-            <div className="px-4 border-b"><TabsList className="h-9"><TabsTrigger value="users" className="text-xs gap-1"><Users className="h-3 w-3"/>Users</TabsTrigger><TabsTrigger value="trainings" className="text-xs gap-1"><GraduationCap className="h-3 w-3"/>Trainings</TabsTrigger><TabsTrigger value="assignments" className="text-xs gap-1"><BarChart3 className="h-3 w-3"/>Assignments</TabsTrigger></TabsList></div>
-            <ScrollArea className="flex-1 p-4">
-              {/* USERS TAB */}
-              <TabsContent value="users" className="mt-0">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="font-semibold text-sm">Employees ({employees.length})</h3>
-                  <Button size="sm" className="gap-1 text-xs" onClick={()=>setShowNewEmployee(true)}><Plus className="h-3 w-3"/>Add Employee</Button>
+      {/* ==================== BULK HIDE DIALOG ==================== */}
+      <Dialog open={showBulkHide} onOpenChange={v=>{setShowBulkHide(v);if(!v)setBulkHideSelection(new Set());}}>
+        <DialogContent className="sm:max-w-lg max-h-[80vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>Bulk Hide {bulkHideType==='direct_chats'?'Direct Chats':'Projects'}</DialogTitle>
+          <DialogDescription>Uncheck items you want to keep visible. Checked items will be hidden from employees.</DialogDescription></DialogHeader>
+          <div className="space-y-2 max-h-60 overflow-y-auto">
+            {(bulkHideType==='direct_chats'?visibleDirectChats:visibleProjects).map(item=>(
+              <div key={item.id} className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-colors ${bulkHideSelection.has(item.id)?'bg-primary/10 border-primary':'hover:bg-muted'}`}
+                onClick={()=>setBulkHideSelection(prev=>{const n=new Set(prev);if(n.has(item.id))n.delete(item.id);else n.add(item.id);return n;})}>
+                <div className={`h-4 w-4 rounded border ${bulkHideSelection.has(item.id)?'bg-primary border-primary':'border-border'} flex items-center justify-center`}>
+                  {bulkHideSelection.has(item.id)&&<Check className="h-3 w-3 text-primary-foreground"/>}
                 </div>
-                {employees.length===0?<p className="text-sm text-muted-foreground text-center py-4">No employees yet</p>:
-                <div className="space-y-2">{employees.map(emp=>(
-                  <div key={emp.id} className="flex items-center justify-between p-3 rounded-lg border">
-                    <div><p className="font-medium text-sm">{emp.name}</p><p className="text-xs text-muted-foreground">ID: {emp.employeeId}</p></div>
-                    <div className="flex gap-1">
-                      <Button size="sm" variant="outline" className="h-7 text-[10px] gap-1" onClick={()=>{setResetEmpId(emp.id);setShowResetPassword(true);}}><KeyRound className="h-3 w-3"/>Reset Pass</Button>
-                      <AlertDialog><AlertDialogTrigger asChild><Button size="sm" variant="ghost" className="h-7 text-destructive hover:text-destructive"><Trash2 className="h-3 w-3"/></Button></AlertDialogTrigger>
-                        <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Delete {emp.name}?</AlertDialogTitle><AlertDialogDescription>This will remove the employee and all their training assignments.</AlertDialogDescription></AlertDialogHeader>
-                        <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={()=>handleDeleteEmployee(emp.id)}>Delete</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
-                      </AlertDialog>
-                    </div>
-                  </div>
-                ))}</div>}
-              </TabsContent>
-
-              {/* TRAININGS TAB */}
-              <TabsContent value="trainings" className="mt-0">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="font-semibold text-sm">Trainings ({trainings.length})</h3>
-                  <Button size="sm" className="gap-1 text-xs" onClick={()=>setShowNewTraining(true)}><Plus className="h-3 w-3"/>New Training</Button>
-                </div>
-                {trainings.length===0?<p className="text-sm text-muted-foreground text-center py-4">No trainings yet</p>:
-                <div className="space-y-2">{trainings.map(t=>(
-                  <div key={t.id} className="flex items-center justify-between p-3 rounded-lg border">
-                    <div><p className="font-medium text-sm">{t.title}</p><div className="flex items-center gap-2 text-xs text-muted-foreground"><span>{t.category}</span><Badge variant="outline" className="text-[9px]">{t.difficulty}</Badge><span>{parseQuestions(t.questions||'[]').length} questions</span></div></div>
-                    <div className="flex gap-1">
-                      <Button size="sm" variant="outline" className="h-7 text-[10px] gap-1" onClick={()=>{setAssignTrainingId(t.id);setSelectedEmployeeIds(new Set());setShowAssignTraining(true);}}><Users className="h-3 w-3"/>Assign</Button>
-                      <AlertDialog><AlertDialogTrigger asChild><Button size="sm" variant="ghost" className="h-7 text-destructive hover:text-destructive"><Trash2 className="h-3 w-3"/></Button></AlertDialogTrigger>
-                        <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Delete training?</AlertDialogTitle></AlertDialogHeader>
-                        <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={async()=>{await fetch(`/api/trainings/${t.id}`,{method:'DELETE'});fetchTrainings();fetchAllAssignments();toast({title:'Deleted'});}}>Delete</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
-                      </AlertDialog>
-                    </div>
-                  </div>
-                ))}</div>}
-              </TabsContent>
-
-              {/* ASSIGNMENTS TAB */}
-              <TabsContent value="assignments" className="mt-0">
-                <h3 className="font-semibold text-sm mb-3">All Assignments</h3>
-                {allAssignments.length===0?<p className="text-sm text-muted-foreground text-center py-4">No assignments yet</p>:
-                <div className="space-y-2">{allAssignments.map(a=>(
-                  <div key={a.id} className="flex items-center justify-between p-3 rounded-lg border">
-                    <div><p className="font-medium text-sm">{a.training?.title||'Training'}</p><p className="text-xs text-muted-foreground">Employee: {a.employee?.name||a.employeeId}</p></div>
-                    <div className="flex items-center gap-2">
-                      <Badge variant={a.status==='due'?'secondary':a.status==='in_progress'?'default':'outline'} className="text-[10px]">{a.status}</Badge>
-                      {a.score!==null&&<span className="text-xs font-semibold">{a.score}%</span>}
-                    </div>
-                  </div>
-                ))}</div>}
-              </TabsContent>
-            </ScrollArea>
-          </Tabs>
+                <span className="text-sm truncate">{item.title||item.name}</span>
+              </div>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={()=>setShowBulkHide(false)}>Cancel</Button>
+            <Button onClick={handleBulkHide} disabled={bulkHideSelection.size===0}>
+              <EyeOff className="h-4 w-4 mr-2"/>Hide {bulkHideSelection.size} Item{bulkHideSelection.size!==1?'s':''}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -1501,9 +1843,10 @@ export default function Home() {
       </Dialog>
 
       {/* Assign Training Dialog */}
-      <Dialog open={showAssignTraining} onOpenChange={v=>{setShowAssignTraining(v);if(!v){setAssignTrainingId(null);setSelectedEmployeeIds(new Set());}}}>
-        <DialogContent className="sm:max-w-md max-h-[85vh] overflow-y-auto"><DialogHeader><DialogTitle>Assign Training</DialogTitle><DialogDescription>Select employees to assign this training to</DialogDescription></DialogHeader>
+      <Dialog open={showAssignTraining} onOpenChange={v=>{setShowAssignTraining(v);if(!v){setAssignTrainingId(null);setSelectedEmployeeIds(new Set());setNewTrainingDueDate('');}}}>
+        <DialogContent className="sm:max-w-md max-h-[85vh] overflow-y-auto"><DialogHeader><DialogTitle>Assign Training</DialogTitle><DialogDescription>Select employees and set a due date</DialogDescription></DialogHeader>
           <div className="space-y-3">
+            <div><Label>Due Date (optional)</Label><Input type="date" value={newTrainingDueDate} onChange={e=>setNewTrainingDueDate(e.target.value)}/></div>
             {employees.length===0?<p className="text-sm text-muted-foreground">No employees to assign to</p>:
             <div className="space-y-2">{employees.map(emp=>(
               <div key={emp.id} className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-colors ${selectedEmployeeIds.has(emp.id)?'bg-primary/10 border-primary':'hover:bg-muted'}`}

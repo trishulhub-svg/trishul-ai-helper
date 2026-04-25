@@ -77,6 +77,7 @@ export async function POST(req: NextRequest) {
       const zai = await getZAI();
       const completion = await zai.chat.completions.create({
         messages,
+        max_tokens: 8000,
         thinking: { type: 'disabled' },
       });
       aiResponse = completion.choices[0]?.message?.content || 'I was unable to process the file. Please try again.';
@@ -86,6 +87,7 @@ export async function POST(req: NextRequest) {
       const zai = await getZAI();
       const completion = await zai.chat.completions.create({
         messages,
+        max_tokens: 8000,
         thinking: { type: 'disabled' },
       });
       aiResponse = completion.choices[0]?.message?.content || 'I apologize, but I was unable to generate a response. Please try again.';

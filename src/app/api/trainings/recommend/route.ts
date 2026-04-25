@@ -9,7 +9,7 @@ interface RecommendedCategory {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { context } = body;
+    const { context, category } = body;
 
     const systemPrompt = `You are a corporate training advisor. You recommend trending and impactful training categories for organizations.
 
@@ -28,15 +28,25 @@ Rules:
 - Descriptions should be informative but brief
 - Return ONLY the JSON array, nothing else`;
 
-    const userMessage = context
-      ? `Based on the following company context, recommend 5-6 trending and relevant training categories:
+    let userMessage: string;
+
+    if (category && category.trim()) {
+      userMessage = `The admin has entered the category: "${category.trim()}". Suggest 5-6 related training categories that would complement this area.
+
+${context ? `Additional company context: ${context}` : ''}
+
+Return the JSON array of recommended categories now.`;
+    } else if (context) {
+      userMessage = `Based on the following company context, recommend 5-6 trending and relevant training categories:
 
 Company context: ${context}
 
-Return the JSON array of recommended categories now.`
-      : `Recommend 5-6 trending and impactful training categories for a modern tech organization. Consider current industry trends, in-demand skills, and professional development needs.
+Return the JSON array of recommended categories now.`;
+    } else {
+      userMessage = `Recommend 5-6 trending and impactful training categories for a modern tech organization. Consider current industry trends, in-demand skills, and professional development needs.
 
 Return the JSON array of recommended categories now.`;
+    }
 
     const zai = await getZAI();
     const completion = await zai.chat.completions.create({

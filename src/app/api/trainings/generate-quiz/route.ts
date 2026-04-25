@@ -50,14 +50,20 @@ Rules:
 - Difficulty level should match the specified level
 - Return ONLY the JSON array, nothing else`;
 
-    const userMessage = `Generate 10 multiple-choice quiz questions about "${category.trim()}" at ${normalizedDifficulty} difficulty level.
+    const difficultyDescription = normalizedDifficulty === 'beginner'
+      ? 'beginner (recall/facts) - Focus on fundamental concepts, basic terminology, and factual recall from the video content'
+      : normalizedDifficulty === 'intermediate'
+        ? 'intermediate (application/analysis) - Focus on applied knowledge, practical scenarios, and analysis of concepts from the video'
+        : 'advanced (evaluation/synthesis) - Focus on complex scenarios, edge cases, evaluation of approaches, and synthesis of ideas from the video';
+
+    const userMessage = `Generate quiz questions BASED ON the content of the YouTube video about "${category.trim()}". The questions must be answerable from watching the video.
 
 Requirements:
 - Category: ${category.trim()}
-- Difficulty: ${normalizedDifficulty}
-- ${normalizedDifficulty === 'beginner' ? 'Focus on fundamental concepts and basic terminology' : ''}
-- ${normalizedDifficulty === 'intermediate' ? 'Focus on applied knowledge and practical scenarios' : ''}
-- ${normalizedDifficulty === 'advanced' ? 'Focus on complex scenarios, edge cases, and deep understanding' : ''}
+- The questions should be at ${difficultyDescription} level
+- ${normalizedDifficulty === 'beginner' ? 'Focus on fundamental concepts, definitions, and key facts presented in the video' : ''}
+- ${normalizedDifficulty === 'intermediate' ? 'Focus on how concepts are applied, practical examples shown in the video, and analysis of the content' : ''}
+- ${normalizedDifficulty === 'advanced' ? 'Focus on evaluating different approaches discussed, synthesizing ideas from the video, and complex scenario analysis' : ''}
 
 Return the JSON array of 10 questions now.`;
 
