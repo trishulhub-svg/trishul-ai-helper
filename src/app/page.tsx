@@ -403,20 +403,7 @@ function SidebarContent({
         <Button size="sm" className="w-full h-8 text-xs gap-1.5 mb-2" variant="default" onClick={() => { handleNewDirectChat(); closeOnMobile(); }}>
           <Sparkles className="h-3.5 w-3.5" /> Direct AI Chat
         </Button>
-        <Dialog open={showNewProject} onOpenChange={setShowNewProject}>
-          <DialogTrigger asChild>
-            <Button size="sm" variant="outline" className="w-full h-8 text-xs gap-1.5"><FolderPlus className="h-3.5 w-3.5" /> New Project</Button>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader><DialogTitle>Create New Project</DialogTitle><DialogDescription>Add your project to store code and chat with AI</DialogDescription></DialogHeader>
-            <div className="space-y-3">
-              <div><label className="text-sm font-medium mb-1.5 block">Project Name *</label><Input value={newProjectName} onChange={(e) => setNewProjectName(e.target.value)} placeholder="e.g., My Web App" onKeyDown={(e) => e.key === 'Enter' && handleCreateProject()} autoFocus /></div>
-              <div><label className="text-sm font-medium mb-1.5 block">Description</label><Textarea value={newProjectDesc} onChange={(e) => setNewProjectDesc(e.target.value)} placeholder="What is this project about?" rows={2} /></div>
-              <div><label className="text-sm font-medium mb-1.5 block">Tech Stack</label><Input value={newProjectTech} onChange={(e) => setNewProjectTech(e.target.value)} placeholder="e.g., Next.js, TypeScript, Prisma" /></div>
-              <Button onClick={handleCreateProject} disabled={!newProjectName.trim()} className="w-full"><FolderPlus className="h-4 w-4 mr-2" /> Create Project</Button>
-            </div>
-          </DialogContent>
-        </Dialog>
+        <Button size="sm" variant="outline" className="w-full h-8 text-xs gap-1.5" onClick={() => setShowNewProject(true)}><FolderPlus className="h-3.5 w-3.5" /> New Project</Button>
       </div>
 
       <ScrollArea className="flex-1">
@@ -1172,6 +1159,18 @@ export default function Home() {
           </Dialog>
         )}
       </div>
+      {/* Create Project Dialog - rendered at top level so it works from anywhere */}
+      <Dialog open={showNewProject} onOpenChange={setShowNewProject}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader><DialogTitle>Create New Project</DialogTitle><DialogDescription>Add your project to store code and chat with AI</DialogDescription></DialogHeader>
+          <div className="space-y-3">
+            <div><label className="text-sm font-medium mb-1.5 block">Project Name *</label><Input value={newProjectName} onChange={(e) => setNewProjectName(e.target.value)} placeholder="e.g., My Web App" onKeyDown={(e) => e.key === 'Enter' && handleCreateProject()} autoFocus /></div>
+            <div><label className="text-sm font-medium mb-1.5 block">Description</label><Textarea value={newProjectDesc} onChange={(e) => setNewProjectDesc(e.target.value)} placeholder="What is this project about?" rows={2} /></div>
+            <div><label className="text-sm font-medium mb-1.5 block">Tech Stack</label><Input value={newProjectTech} onChange={(e) => setNewProjectTech(e.target.value)} placeholder="e.g., Next.js, TypeScript, Prisma" /></div>
+            <Button onClick={handleCreateProject} disabled={!newProjectName.trim()} className="w-full"><FolderPlus className="h-4 w-4 mr-2" /> Create Project</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </TooltipProvider>
   );
 }
