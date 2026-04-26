@@ -361,46 +361,46 @@ function QuizView({ questions, onComplete }: { questions: QuizQuestion[]; onComp
 }
 
 // ===================== OPTIMIZED CHAT INPUT =====================
-// Memoized chat input that prevents re-renders of the entire parent on every keystroke.
-// Uses a key prop to reset (clear) the input when clearSignal changes.
-const ChatInput = memo(({ onSend, placeholder, disabled, inputRef, clearSignal }: {
+// Uses a ref-based approach: local state for typing (no parent re-render),
+// and a stable onSendRef to avoid stale closure issues with memo.
+// The valueRef prop lets the parent read the current input value without re-rendering.
+const ChatInput = memo(({ onSend, placeholder, disabled, valueRef, clearSignal }: {
   onSend: (message: string) => void; placeholder: string; disabled: boolean;
-  inputRef: React.RefObject<HTMLTextAreaElement | null>;
+  valueRef: React.MutableRefObject<string>;
   clearSignal: number;
 }) => {
   const [localValue, setLocalValue] = useState('');
-  const innerRef = useRef<HTMLTextAreaElement>(null);
+  // Store onSend in a ref so handleKeyDown never goes stale
+  const onSendRef = useRef(onSend);
+  useEffect(() => { onSendRef.current = onSend; }, [onSend]);
+  const textareaElRef = useRef<HTMLTextAreaElement | null>(null);
 
   const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setLocalValue(e.target.value);
-    // Auto-resize
+    const val = e.target.value;
+    setLocalValue(val);
+    valueRef.current = val;
     const ta = e.target;
     ta.style.height = 'auto';
     ta.style.height = Math.min(ta.scrollHeight, 120) + 'px';
-  }, []);
+  }, [valueRef]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      // Read value from the event target directly for freshest value
       const ta = e.target as HTMLTextAreaElement;
       const val = ta.value.trim();
       if (val) {
-        onSend(val);
+        onSendRef.current(val);
         setLocalValue('');
+        valueRef.current = '';
         ta.style.height = 'auto';
       }
     }
-  }, [onSend]);
+  }, [valueRef]); // onSendRef is stable, valueRef is stable
 
-  // Sync inner ref with parent's inputRef using a callback ref pattern
   const setRef = useCallback((el: HTMLTextAreaElement | null) => {
-    innerRef.current = el;
-    // Also set the parent's ref using Object.defineProperty to bypass lint
-    if (inputRef && 'current' in inputRef) {
-      Object.defineProperty(inputRef, 'current', { value: el, writable: true });
-    }
-  }, [inputRef]);
+    textareaElRef.current = el;
+  }, []);
 
   return (
     <textarea
@@ -558,7 +558,7 @@ export default function Home() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const chatInputValueRef = useRef('');
   const allCodeBlocks = extractCodeBlocksFromMessages(messages);
 
   useEffect(() => { setMounted(true); }, []);
@@ -900,9 +900,9 @@ export default function Home() {
     finally{setIsLoading(false);}
   }, [inputMessage, isLoading, pendingAttachments, userRole, selectedDirectChatId, directChatLocks, selectedProjectId, projectLocks, selectedBusinessChatId, chatMode, selectedConversationId, toast, fetchBusinessChats, fetchDirectChats, fetchProjectDetails, fetchProjects]);
 
-  const handleNewChat=()=>{setSelectedConversationId(null);setMessages([]);setCurrentConversation(null);setUserScrolledUp(false);setPendingAttachments([]);setChatMode(selectedProjectId?'project':'none');inputRef.current?.focus();};
-  const handleNewDirectChat=()=>{setSelectedDirectChatId(null);setSelectedProjectId(null);setSelectedConversationId(null);setSelectedBusinessChatId(null);setMessages([]);setCurrentConversation(null);setCodePanelOpen(false);setActiveView('chat');setUserScrolledUp(false);setPendingAttachments([]);setChatMode('direct');inputRef.current?.focus();};
-  const handleNewBusinessChat=()=>{setSelectedBusinessChatId(null);setSelectedDirectChatId(null);setSelectedProjectId(null);setSelectedConversationId(null);setMessages([]);setCurrentConversation(null);setActiveView('chat');setUserScrolledUp(false);setPendingAttachments([]);setChatMode('business');inputRef.current?.focus();};
+  const handleNewChat=()=>{setSelectedConversationId(null);setMessages([]);setCurrentConversation(null);setUserScrolledUp(false);setPendingAttachments([]);chatInputValueRef.current='';setChatMode(selectedProjectId?'project':'none');};
+  const handleNewDirectChat=()=>{setSelectedDirectChatId(null);setSelectedProjectId(null);setSelectedConversationId(null);setSelectedBusinessChatId(null);setMessages([]);setCurrentConversation(null);setCodePanelOpen(false);setActiveView('chat');setUserScrolledUp(false);setPendingAttachments([]);chatInputValueRef.current='';setChatMode('direct');};
+  const handleNewBusinessChat=()=>{setSelectedBusinessChatId(null);setSelectedDirectChatId(null);setSelectedProjectId(null);setSelectedConversationId(null);setMessages([]);setCurrentConversation(null);setActiveView('chat');setUserScrolledUp(false);setPendingAttachments([]);chatInputValueRef.current='';setChatMode('business');};
   const toggleProjectExpand=(id:string)=>{setExpandedProjects(prev=>{const n=new Set(prev);if(n.has(id))n.delete(id);else n.add(id);return n;});};
   const handleViewFile=(file:CodeFile)=>{setViewingFile(file);setFileViewerOpen(true);};
 
@@ -1769,10 +1769,10 @@ export default function Home() {
                   {isAdmin&&<Button variant="ghost" size="icon" className={`h-5 w-5 opacity-0 group-hover:opacity-100 ${c.isHidden?'text-red-500':'text-muted-foreground'}`} onClick={e=>{e.stopPropagation();handleToggleChatHide(c.id);}} title={c.isHidden?'Unhide':'Hide'}><EyeOff className="h-2.5 w-2.5"/></Button>}
                   <Button variant="ghost" size="icon" className="h-5 w-5 opacity-0 group-hover:opacity-100" onClick={e=>{e.stopPropagation();handleStartRename(c.id,'chat',c.title);}}><Pencil className="h-2.5 w-2.5"/></Button>
                   {isAdmin?(
-                    <AlertDialog><AlertDialogTrigger asChild><Button variant="ghost" size="icon" className="h-5 w-5 opacity-40 group-hover:opacity-100 text-destructive hover:text-destructive" onClick={e=>e.stopPropagation()}><Trash2 className="h-2.5 w-2.5"/></Button></AlertDialogTrigger>
+                    <AlertDialog><AlertDialogTrigger asChild><Button variant="ghost" size="icon" className="h-5 w-5 opacity-40 group-hover:opacity-100 text-destructive hover:text-destructive" title="Delete chat" onClick={e=>e.stopPropagation()}><Trash2 className="h-2.5 w-2.5"/></Button></AlertDialogTrigger>
                     <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Delete Business Chat?</AlertDialogTitle><AlertDialogDescription>Delete &quot;{c.title}&quot;? This cannot be undone.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={()=>handleDeleteDirectChat(c.id)}>Delete</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
                   ):(
-                    <Button variant="ghost" size="icon" className="h-5 w-5 opacity-40 group-hover:opacity-100" onClick={e=>{e.stopPropagation();handleDeleteDirectChat(c.id);}}><Trash2 className="h-2.5 w-2.5 text-destructive"/></Button>
+                    <Button variant="ghost" size="icon" className="h-5 w-5 opacity-40 group-hover:opacity-100 text-orange-500 hover:text-orange-600" title="Request deletion" onClick={e=>{e.stopPropagation();handleDeleteDirectChat(c.id);}}><Trash2 className="h-2.5 w-2.5"/></Button>
                   )}
                 </div>
               ))}
@@ -1804,10 +1804,10 @@ export default function Home() {
                   {isAdmin&&<Button variant="ghost" size="icon" className={`h-5 w-5 opacity-0 group-hover:opacity-100 ${c.isHidden?'text-red-500':'text-muted-foreground'}`} onClick={e=>{e.stopPropagation();handleToggleChatHide(c.id);}} title={c.isHidden?'Unhide':'Hide'}><EyeOff className="h-2.5 w-2.5"/></Button>}
                   <Button variant="ghost" size="icon" className="h-5 w-5 opacity-0 group-hover:opacity-100" onClick={e=>{e.stopPropagation();handleStartRename(c.id,'chat',c.title);}}><Pencil className="h-2.5 w-2.5"/></Button>
                   {isAdmin?(
-                    <AlertDialog><AlertDialogTrigger asChild><Button variant="ghost" size="icon" className="h-5 w-5 opacity-40 group-hover:opacity-100 text-destructive hover:text-destructive" onClick={e=>e.stopPropagation()}><Trash2 className="h-2.5 w-2.5"/></Button></AlertDialogTrigger>
+                    <AlertDialog><AlertDialogTrigger asChild><Button variant="ghost" size="icon" className="h-5 w-5 opacity-40 group-hover:opacity-100 text-destructive hover:text-destructive" title="Delete chat" onClick={e=>e.stopPropagation()}><Trash2 className="h-2.5 w-2.5"/></Button></AlertDialogTrigger>
                     <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Delete Direct Chat?</AlertDialogTitle><AlertDialogDescription>Delete &quot;{c.title}&quot;? This cannot be undone.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={()=>handleDeleteDirectChat(c.id)}>Delete</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
                   ):(
-                    <Button variant="ghost" size="icon" className="h-5 w-5 opacity-40 group-hover:opacity-100" onClick={e=>{e.stopPropagation();handleDeleteDirectChat(c.id);}}><Trash2 className="h-2.5 w-2.5 text-destructive"/></Button>
+                    <Button variant="ghost" size="icon" className="h-5 w-5 opacity-40 group-hover:opacity-100 text-orange-500 hover:text-orange-600" title="Request deletion" onClick={e=>{e.stopPropagation();handleDeleteDirectChat(c.id);}}><Trash2 className="h-2.5 w-2.5"/></Button>
                   )}
                 </div>
               );})}
@@ -1849,11 +1849,11 @@ export default function Home() {
                   {project.isLocked && isAdmin && <Badge variant="outline" className="h-4 px-1 text-[8px] border-red-500/50 text-red-500 bg-red-500/10">Hidden</Badge>}
                   {/* Delete */}
                   {isAdmin?(
-                    <AlertDialog><AlertDialogTrigger asChild><Button variant="ghost" size="icon" className="h-6 w-6 opacity-40 group-hover:opacity-100 transition-opacity" onClick={e=>e.stopPropagation()}><Trash2 className="h-3 w-3 text-destructive"/></Button></AlertDialogTrigger>
+                    <AlertDialog><AlertDialogTrigger asChild><Button variant="ghost" size="icon" className="h-6 w-6 opacity-40 group-hover:opacity-100 transition-opacity" title="Delete project" onClick={e=>e.stopPropagation()}><Trash2 className="h-3 w-3 text-destructive"/></Button></AlertDialogTrigger>
                     <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Delete Project?</AlertDialogTitle><AlertDialogDescription>Delete &quot;{project.name}&quot; and all its data.</AlertDialogDescription></AlertDialogHeader>
                     <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={()=>handleDeleteProject(project.id)}>Delete</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
                   ):(
-                    <Button variant="ghost" size="icon" className="h-6 w-6 opacity-40 group-hover:opacity-100 transition-opacity" onClick={e=>{e.stopPropagation();handleDeleteProject(project.id);}}><Trash2 className="h-3 w-3 text-destructive"/></Button>
+                    <Button variant="ghost" size="icon" className="h-6 w-6 opacity-40 group-hover:opacity-100 transition-opacity text-orange-500 hover:text-orange-600" title="Request deletion" onClick={e=>{e.stopPropagation();handleDeleteProject(project.id);}}><Trash2 className="h-3 w-3"/></Button>
                   )}
                 </div>
                 {expandedProjects.has(project.id)&&selectedProjectId===project.id&&(
@@ -1863,10 +1863,10 @@ export default function Home() {
                         onClick={()=>{setSelectedConversationId(conv.id);if(isMobile)setMobileSheetOpen(false);}}>
                         <MessageSquare className="h-3 w-3 flex-shrink-0"/><span className="truncate flex-1">{conv.title}</span>
                         {isAdmin?(
-                          <AlertDialog><AlertDialogTrigger asChild><Button variant="ghost" size="icon" className="h-5 w-5 opacity-40 group-hover:opacity-100 text-destructive hover:text-destructive" onClick={e=>e.stopPropagation()}><Trash2 className="h-2.5 w-2.5"/></Button></AlertDialogTrigger>
+                          <AlertDialog><AlertDialogTrigger asChild><Button variant="ghost" size="icon" className="h-5 w-5 opacity-40 group-hover:opacity-100 text-destructive hover:text-destructive" title="Delete chat" onClick={e=>e.stopPropagation()}><Trash2 className="h-2.5 w-2.5"/></Button></AlertDialogTrigger>
                           <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Delete Chat?</AlertDialogTitle><AlertDialogDescription>Delete &quot;{conv.title}&quot;? This cannot be undone.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={()=>handleDeleteConversation(conv.id)}>Delete</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
                         ):(
-                          <Button variant="ghost" size="icon" className="h-5 w-5 opacity-40 group-hover:opacity-100" onClick={e=>{e.stopPropagation();handleDeleteConversation(conv.id);}}><Trash2 className="h-2.5 w-2.5 text-destructive"/></Button>
+                          <Button variant="ghost" size="icon" className="h-5 w-5 opacity-40 group-hover:opacity-100 text-orange-500 hover:text-orange-600" title="Request deletion" onClick={e=>{e.stopPropagation();handleDeleteConversation(conv.id);}}><Trash2 className="h-2.5 w-2.5"/></Button>
                         )}
                       </div>
                     ))}
@@ -2005,10 +2005,10 @@ export default function Home() {
                 onSend={(msg) => handleSendMessage(msg)}
                 placeholder={selectedBusinessChatId?"Ask Trishul B.A. about business strategy...":"Ask anything about code..."}
                 disabled={isLoading}
-                inputRef={inputRef}
+                valueRef={chatInputValueRef}
                 clearSignal={chatInputClearSignal}
               />
-              <Button onClick={() => { const v = inputRef.current?.value?.trim(); if(v){ handleSendMessage(v); setChatInputClearSignal(s=>s+1); } }} disabled={isLoading||pendingAttachments.length===0} size="icon" className="h-10 w-10 flex-shrink-0"><Send className="h-4 w-4"/></Button>
+              <Button onClick={() => { const v = chatInputValueRef.current.trim(); if(v){ handleSendMessage(v); chatInputValueRef.current=''; setChatInputClearSignal(s=>s+1); } }} disabled={isLoading} size="icon" className="h-10 w-10 flex-shrink-0"><Send className="h-4 w-4"/></Button>
             </div>
             </>
             )}

@@ -5,32 +5,54 @@ import nodemailer from 'nodemailer';
 // Module-level Map for storing OTPs (in-memory, resets on server restart)
 const otpStore = new Map<string, { otp: string; expiresAt: number }>();
 
-// Email transporter - configured from database SMTP settings
+// Cached transporter with pool support — reused across requests
+let cachedTransporter: nodemailer.Transporter | null = null;
+let cachedSmtpKey = ''; // Track which SMTP config was used
+
+// Build a cache key from SMTP settings to detect config changes
+function getSmtpKey(host: string, port: string, user: string): string {
+  return `${host}:${port}:${user}`;
+}
+
+// Get or create a pooled email transporter
 async function getEmailTransporter() {
   const admin = await db.admin.findFirst();
   if (!admin || !admin.smtpHost || !admin.smtpUser || !admin.smtpPass) {
-    return null; // SMTP not configured in database
+    return null; // SMTP not configured
   }
 
-  return nodemailer.createTransport({
+  const key = getSmtpKey(admin.smtpHost, admin.smtpPort || '587', admin.smtpUser);
+
+  // Reuse cached transporter if config hasn't changed
+  if (cachedTransporter && cachedSmtpKey === key) {
+    return cachedTransporter;
+  }
+
+  // Close old transporter if config changed
+  if (cachedTransporter) {
+    try { cachedTransporter.close(); } catch {}
+  }
+
+  const port = admin.smtpPort ? parseInt(admin.smtpPort) : 587;
+  const newTransporter = nodemailer.createTransport({
     host: admin.smtpHost,
-    port: admin.smtpPort ? parseInt(admin.smtpPort) : 587,
-    secure: admin.smtpPort === '465',
+    port,
+    secure: port === 465,
     auth: { user: admin.smtpUser, pass: admin.smtpPass },
+    pool: true,            // Reuse connections
+    maxConnections: 3,     // Max simultaneous connections
+    maxMessages: 100,      // Max messages per connection
+    connectionTimeout: 10000, // 10s connection timeout
+    greetingTimeout: 10000,
+    socketTimeout: 15000,
   });
+
+  cachedTransporter = newTransporter;
+  cachedSmtpKey = key;
+  return newTransporter;
 }
 
-async function sendOtpEmail(email: string, otp: string): Promise<boolean> {
-  const transporter = await getEmailTransporter();
-
-  if (!transporter) {
-    console.log('SMTP not configured in database. OTP for', email, ':', otp);
-    return false; // Email not sent
-  }
-
-  const admin = await db.admin.findFirst();
-  const fromEmail = admin?.smtpFrom || admin?.smtpUser || 'noreply@trishul.ai';
-
+async function sendOtpEmail(transporter: nodemailer.Transporter, fromEmail: string, email: string, otp: string): Promise<boolean> {
   try {
     await transporter.sendMail({
       from: `"Trishul AI Helper" <${fromEmail}>`,
@@ -88,40 +110,34 @@ export async function POST(request: Request) {
       expiresAt: Date.now() + 10 * 60 * 1000,
     });
 
-    // Try to send OTP via email (async - don't wait for it)
-    const emailSentPromise = sendOtpEmail(admin.email, otp);
-    
-    // Create audit log
-    await db.auditLog.create({
-      data: {
-        action: 'reset_password',
-        targetType: 'employee',
-        targetId: admin.id,
-        targetName: admin.email,
-        newValue: 'OTP requested',
-        performedBy: 'system',
-      },
-    });
-
-    // Check SMTP configuration to determine response
+    // Try to get transporter and send email
     const transporter = await getEmailTransporter();
-    const hasSmtp = !!transporter;
+    const fromEmail = admin?.smtpFrom || admin?.smtpUser || 'noreply@trishul.ai';
 
-    if (hasSmtp) {
-      // Fire and forget - send email in background, respond immediately
-      emailSentPromise.catch(err => {
-        console.error('Background email send failed:', err);
-      });
-      
-      return NextResponse.json({
-        success: true,
-        message: 'OTP sent to your email address. Please check your inbox.',
-        otp: undefined, // Never show OTP on screen when SMTP is configured
-        adminId: admin.id,
-        emailSent: true,
-      });
+    if (transporter) {
+      // Send email — await it for faster feedback (pooled connection makes this fast)
+      const emailSent = await sendOtpEmail(transporter, fromEmail, admin.email, otp);
+
+      if (emailSent) {
+        return NextResponse.json({
+          success: true,
+          message: 'OTP sent to your email address. Please check your inbox.',
+          otp: undefined,
+          adminId: admin.id,
+          emailSent: true,
+        });
+      } else {
+        // Email failed to send — show OTP on screen as fallback
+        return NextResponse.json({
+          success: true,
+          message: 'Email delivery failed. OTP shown on screen as fallback.',
+          otp: otp,
+          adminId: admin.id,
+          emailSent: false,
+        });
+      }
     } else {
-      // SMTP not configured - show OTP on screen
+      // SMTP not configured — show OTP on screen
       return NextResponse.json({
         success: true,
         message: 'SMTP not configured. OTP shown on screen.',

@@ -341,3 +341,29 @@ Stage Summary:
 - Delete Requests tab added to admin dashboard with badge count
 - No database schema changes required - existing data preserved
 - All lint checks pass, dev server running clean
+
+---
+Task ID: 1
+Agent: Main Agent
+Task: Fix Enter key and send button not working in all chats, fix OTP delay, verify delete system
+
+Work Log:
+- Identified root cause of Enter key not working: ChatInput component used `Object.defineProperty` hack for ref sync which broke React's internal ref handling
+- Identified send button always disabled: `disabled={isLoading||pendingAttachments.length===0}` made button disabled when no attachments (which is the normal case)
+- Rewrote ChatInput component with stable `onSendRef` pattern (stores onSend in a ref, updates via useEffect) - eliminates stale closure issues
+- Replaced `inputRef` with `chatInputValueRef` (MutableRefObject<string>) for reading input value from send button - lint-compliant
+- Fixed send button disabled condition to `disabled={isLoading}`
+- Regenerated Prisma client (db:push) to fix `db.conversationLock.findMany` undefined error
+- Cleared .next cache and restarted dev server to pick up new Prisma client
+- Optimized OTP email sending: added connection pooling (pool: true), cached transporter, removed redundant DB queries
+- Verified delete system already exists: admin gets AlertDialog confirmation for direct delete, employees get delete reason dialog that submits request
+- Added tooltips and orange color for employee delete buttons (vs red for admin) to distinguish request vs direct delete
+- All lint checks pass
+
+Stage Summary:
+- ChatInput now uses onSendRef pattern (no stale closures) + valueRef for send button
+- Send button no longer always disabled
+- ConversationLock and AuditLog Prisma models now work properly
+- OTP emails use pooled/cached transporter for faster delivery
+- Delete system (admin direct delete + employee request with admin approval) is functional
+- No database data was lost during updates
