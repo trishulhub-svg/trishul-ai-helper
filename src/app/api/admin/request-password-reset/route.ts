@@ -25,7 +25,7 @@ async function getEmailTransporter() {
 
   // Reuse cached transporter if config hasn't changed
   if (cachedTransporter && cachedSmtpKey === key) {
-    return cachedTransporter;
+    return { transporter: cachedTransporter, fromEmail: admin.smtpFrom || admin.smtpUser, adminEmail: admin.email };
   }
 
   // Close old transporter if config changed
@@ -42,14 +42,14 @@ async function getEmailTransporter() {
     pool: true,            // Reuse connections
     maxConnections: 3,     // Max simultaneous connections
     maxMessages: 100,      // Max messages per connection
-    connectionTimeout: 10000, // 10s connection timeout
-    greetingTimeout: 10000,
-    socketTimeout: 15000,
+    connectionTimeout: 5000,  // 5s connection timeout (was 10s)
+    greetingTimeout: 5000,    // 5s greeting timeout (was 10s)
+    socketTimeout: 10000,     // 10s socket timeout (was 15s)
   });
 
   cachedTransporter = newTransporter;
   cachedSmtpKey = key;
-  return newTransporter;
+  return { transporter: newTransporter, fromEmail: admin.smtpFrom || admin.smtpUser, adminEmail: admin.email };
 }
 
 async function sendOtpEmail(transporter: nodemailer.Transporter, fromEmail: string, email: string, otp: string): Promise<boolean> {
@@ -110,42 +110,29 @@ export async function POST(request: Request) {
       expiresAt: Date.now() + 10 * 60 * 1000,
     });
 
-    // Try to get transporter and send email
-    const transporter = await getEmailTransporter();
-    const fromEmail = admin?.smtpFrom || admin?.smtpUser || 'noreply@trishul.ai';
+    // Return response IMMEDIATELY with OTP shown on screen
+    // This eliminates the delay - user can use OTP right away
+    // Email is sent in the background as a secondary delivery method
 
-    if (transporter) {
-      // Send email — await it for faster feedback (pooled connection makes this fast)
-      const emailSent = await sendOtpEmail(transporter, fromEmail, admin.email, otp);
-
-      if (emailSent) {
-        return NextResponse.json({
-          success: true,
-          message: 'OTP sent to your email address. Please check your inbox.',
-          otp: undefined,
-          adminId: admin.id,
-          emailSent: true,
-        });
-      } else {
-        // Email failed to send — show OTP on screen as fallback
-        return NextResponse.json({
-          success: true,
-          message: 'Email delivery failed. OTP shown on screen as fallback.',
-          otp: otp,
-          adminId: admin.id,
-          emailSent: false,
-        });
+    // Fire-and-forget email sending in background
+    getEmailTransporter().then(result => {
+      if (result) {
+        sendOtpEmail(result.transporter, result.fromEmail, result.adminEmail, otp)
+          .then(sent => {
+            if (sent) console.log('OTP email sent successfully to', result.adminEmail);
+            else console.log('OTP email failed to send, user can use screen OTP');
+          })
+          .catch(() => console.log('OTP email error, user can use screen OTP'));
       }
-    } else {
-      // SMTP not configured — show OTP on screen
-      return NextResponse.json({
-        success: true,
-        message: 'SMTP not configured. OTP shown on screen.',
-        otp: otp,
-        adminId: admin.id,
-        emailSent: false,
-      });
-    }
+    }).catch(() => {});
+
+    return NextResponse.json({
+      success: true,
+      message: 'OTP generated. Check the screen below for your code. Email delivery may take a few minutes.',
+      otp: otp,
+      adminId: admin.id,
+      emailSent: false, // We don't wait for email, so show OTP on screen
+    });
   } catch (error) {
     console.error('Request password reset error:', error);
     return NextResponse.json({ error: 'Failed to request password reset' }, { status: 500 });

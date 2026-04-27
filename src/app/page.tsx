@@ -361,51 +361,40 @@ function QuizView({ questions, onComplete }: { questions: QuizQuestion[]; onComp
 }
 
 // ===================== OPTIMIZED CHAT INPUT =====================
-// Uses a ref-based approach: local state for typing (no parent re-render),
-// and a stable onSendRef to avoid stale closure issues with memo.
-// The valueRef prop lets the parent read the current input value without re-rendering.
+// Uses local state for typing (prevents parent re-renders on each keystroke).
+// valueRef lets the parent read the current input value without causing re-renders.
+// clearSignal triggers a reset of the input when the parent sends a message via button.
 const ChatInput = memo(({ onSend, placeholder, disabled, valueRef, clearSignal }: {
   onSend: (message: string) => void; placeholder: string; disabled: boolean;
   valueRef: React.MutableRefObject<string>;
   clearSignal: number;
 }) => {
   const [localValue, setLocalValue] = useState('');
-  // Store onSend in a ref so handleKeyDown never goes stale
-  const onSendRef = useRef(onSend);
-  useEffect(() => { onSendRef.current = onSend; }, [onSend]);
-  const textareaElRef = useRef<HTMLTextAreaElement | null>(null);
 
-  const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
     setLocalValue(val);
     valueRef.current = val;
-    const ta = e.target;
-    ta.style.height = 'auto';
-    ta.style.height = Math.min(ta.scrollHeight, 120) + 'px';
-  }, [valueRef]);
+    e.target.style.height = 'auto';
+    e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
+  };
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      const ta = e.target as HTMLTextAreaElement;
-      const val = ta.value.trim();
-      if (val) {
-        onSendRef.current(val);
+      const val = localValue.trim();
+      if (val && !disabled) {
+        onSend(val);
         setLocalValue('');
         valueRef.current = '';
-        ta.style.height = 'auto';
+        e.target.style.height = 'auto';
       }
     }
-  }, [valueRef]); // onSendRef is stable, valueRef is stable
-
-  const setRef = useCallback((el: HTMLTextAreaElement | null) => {
-    textareaElRef.current = el;
-  }, []);
+  };
 
   return (
     <textarea
-      key={`chat-input-${clearSignal}`}
-      ref={setRef}
+      key={clearSignal}
       value={localValue}
       onChange={handleChange}
       onKeyDown={handleKeyDown}
@@ -559,6 +548,7 @@ export default function Home() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatInputValueRef = useRef('');
+  const isLoadingRef = useRef(false);
   const allCodeBlocks = extractCodeBlocksFromMessages(messages);
 
   useEffect(() => { setMounted(true); }, []);
@@ -867,7 +857,7 @@ export default function Home() {
 
   const handleSendMessage = useCallback(async (msgFromInput?: string) => {
     const msg = msgFromInput || inputMessage.trim();
-    if((!msg && pendingAttachments.length === 0)||isLoading) return;
+    if((!msg && pendingAttachments.length === 0)||isLoadingRef.current) return;
     // Check if chat/project is locked by admin for employee
     if(userRole==='employee' && selectedDirectChatId && directChatLocks[selectedDirectChatId]?.lockedBy==='admin'){
       toast({title:'Chat Locked',description:'Admin is currently using this chat',variant:'destructive'});return;
@@ -875,7 +865,7 @@ export default function Home() {
     if(userRole==='employee' && selectedProjectId && projectLocks[selectedProjectId]?.lockedBy==='admin'){
       toast({title:'Project Locked',description:'Admin is currently using this project',variant:'destructive'});return;
     }
-    const userMsg=msg;setInputMessage('');setIsLoading(true);setUserScrolledUp(false);
+    const userMsg=msg;setInputMessage('');setIsLoading(true);isLoadingRef.current=true;setUserScrolledUp(false);
     const currentAttachments=[...pendingAttachments];setPendingAttachments([]);
     const tempMsg:Message={id:'temp-'+Date.now(),conversationId:selectedBusinessChatId||selectedDirectChatId||selectedConversationId||'',role:'user',content:userMsg||'📎 Shared file(s)',createdAt:new Date().toISOString(),attachments:currentAttachments};
     setMessages(prev=>[...prev,tempMsg]);
@@ -897,8 +887,8 @@ export default function Home() {
         if(isBusiness)fetchBusinessChats();else if(!selectedProjectId)fetchDirectChats();else{fetchProjectDetails();fetchProjects();}
       }else{toast({title:'Error',description:'Failed',variant:'destructive'});setMessages(prev=>prev.filter(m=>m.id!==tempMsg.id));}
     }catch{toast({title:'Network Error',variant:'destructive'});setMessages(prev=>prev.filter(m=>m.id!==tempMsg.id));}
-    finally{setIsLoading(false);}
-  }, [inputMessage, isLoading, pendingAttachments, userRole, selectedDirectChatId, directChatLocks, selectedProjectId, projectLocks, selectedBusinessChatId, chatMode, selectedConversationId, toast, fetchBusinessChats, fetchDirectChats, fetchProjectDetails, fetchProjects]);
+    finally{setIsLoading(false);isLoadingRef.current=false;}
+  }, [inputMessage, pendingAttachments, userRole, selectedDirectChatId, directChatLocks, selectedProjectId, projectLocks, selectedBusinessChatId, chatMode, selectedConversationId, toast, fetchBusinessChats, fetchDirectChats, fetchProjectDetails, fetchProjects]);
 
   const handleNewChat=()=>{setSelectedConversationId(null);setMessages([]);setCurrentConversation(null);setUserScrolledUp(false);setPendingAttachments([]);chatInputValueRef.current='';setChatMode(selectedProjectId?'project':'none');};
   const handleNewDirectChat=()=>{setSelectedDirectChatId(null);setSelectedProjectId(null);setSelectedConversationId(null);setSelectedBusinessChatId(null);setMessages([]);setCurrentConversation(null);setCodePanelOpen(false);setActiveView('chat');setUserScrolledUp(false);setPendingAttachments([]);chatInputValueRef.current='';setChatMode('direct');};
@@ -980,8 +970,7 @@ export default function Home() {
     if(!adminEmail){toast({title:'Error',description:'Admin email not found. Please log in again.',variant:'destructive'});return;}
     try{const r=await fetch('/api/admin/request-password-reset',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:adminEmail})});
       if(r.ok){const d=await r.json();setGeneratedOtp(d.otp||'');setAdminId(d.adminId||adminId);setAdminResetStep('verify');
-        if(d.emailSent){toast({title:'OTP Sent',description:`OTP sent to ${adminEmail}. Check your inbox.`});}
-        else{toast({title:'OTP Generated',description:`OTP: ${d.otp} (shown here since email is not configured)`});}
+        toast({title:'OTP Generated',description:`Your OTP is shown below. Email delivery may take a few minutes.`});
       }
       else{const d=await r.json().catch(()=>({}));toast({title:'Error',description:d.error||'Failed',variant:'destructive'});}
     }catch{toast({title:'Error',variant:'destructive'});}
@@ -1510,9 +1499,9 @@ export default function Home() {
                       <Button onClick={handleAdminResetRequest} disabled={!adminEmail} className="w-full"><Mail className="h-4 w-4 mr-2"/>Send OTP to Email</Button>
                     ):(
                       <div className="space-y-3">
-                        {!smtpConfigured&&generatedOtp&&<div className="flex items-center gap-2 p-2 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800"><span className="text-xs font-medium">OTP:</span><code className="text-sm font-bold text-amber-600 dark:text-amber-400">{generatedOtp}</code><span className="text-xs text-muted-foreground">(shown because SMTP is not configured)</span></div>}
-                        {smtpConfigured&&<p className="text-xs text-muted-foreground">OTP has been sent to {adminEmail}. Check your inbox (and spam folder).</p>}
-                        <div><Label>OTP</Label><Input value={adminResetOtp} onChange={e=>setAdminResetOtp(e.target.value)} placeholder="Enter OTP from email"/></div>
+                        {generatedOtp&&<div className="flex items-center gap-2 p-3 rounded-lg bg-primary/10 border border-primary/30"><span className="text-xs font-medium">Your OTP:</span><code className="text-lg font-bold text-primary tracking-widest">{generatedOtp}</code></div>}
+                        {smtpConfigured&&<p className="text-xs text-muted-foreground">OTP also sent to {adminEmail} (may take a few minutes).</p>}
+                        <div><Label>OTP</Label><Input value={adminResetOtp} onChange={e=>setAdminResetOtp(e.target.value)} placeholder="Enter OTP from above"/></div>
                         <div><Label>New Password</Label><Input value={adminResetNewPass} onChange={e=>setAdminResetNewPass(e.target.value)} type="password"/></div>
                         <Button onClick={handleAdminResetVerify} disabled={!adminResetOtp.trim()||!adminResetNewPass.trim()} className="w-full">Verify & Reset</Button>
                       </div>
@@ -1629,11 +1618,11 @@ export default function Home() {
                 {!adminEmail&&<p className="text-xs text-destructive">Admin email not found. Please log in again.</p>}
                 {smtpConfigured?(
                   <div className="flex items-center gap-2 p-2 rounded-lg bg-green-500/10 border border-green-500/30">
-                    <CheckCircle2 className="h-4 w-4 text-green-600"/><span className="text-xs text-green-600 font-medium">OTP will be sent to your email</span>
+                    <CheckCircle2 className="h-4 w-4 text-green-600"/><span className="text-xs text-green-600 font-medium">OTP shown on screen + sent to your email</span>
                   </div>
                 ):(
                   <div className="flex items-center gap-2 p-2 rounded-lg bg-amber-500/10 border border-amber-500/30">
-                    <Mail className="h-4 w-4 text-amber-600"/><span className="text-xs text-amber-600 font-medium">SMTP not configured — OTP shown on screen. Configure in Dashboard → Settings.</span>
+                    <Mail className="h-4 w-4 text-amber-600"/><span className="text-xs text-amber-600 font-medium">OTP always shown on screen for instant access. Configure SMTP in Dashboard → Settings for email delivery too.</span>
                   </div>
                 )}
                 {adminResetStep==='request'?(
@@ -1642,9 +1631,9 @@ export default function Home() {
                   </div>
                 ):(
                   <div className="space-y-2">
-                    {!smtpConfigured&&generatedOtp&&<div className="flex items-center gap-2 p-2 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800"><span className="text-xs font-medium">OTP:</span><code className="text-sm font-bold text-amber-600 dark:text-amber-400">{generatedOtp}</code></div>}
-                    {smtpConfigured&&<p className="text-xs text-muted-foreground">OTP sent to {adminEmail}. Check your inbox.</p>}
-                    <div><Label>OTP</Label><Input value={adminResetOtp} onChange={e=>setAdminResetOtp(e.target.value)} placeholder="Enter OTP from email"/></div>
+                    {generatedOtp&&<div className="flex items-center gap-2 p-3 rounded-lg bg-primary/10 border border-primary/30"><span className="text-xs font-medium">Your OTP:</span><code className="text-lg font-bold text-primary tracking-widest">{generatedOtp}</code></div>}
+                    {smtpConfigured&&<p className="text-xs text-muted-foreground">OTP also sent to {adminEmail} (may take a few minutes).</p>}
+                    <div><Label>OTP</Label><Input value={adminResetOtp} onChange={e=>setAdminResetOtp(e.target.value)} placeholder="Enter OTP from above"/></div>
                     <div><Label>New Password</Label><Input value={adminResetNewPass} onChange={e=>setAdminResetNewPass(e.target.value)} type="password"/></div>
                     <Button onClick={handleAdminResetVerify} disabled={!adminResetOtp.trim()||!adminResetNewPass.trim()} className="w-full">Verify & Reset</Button>
                   </div>
@@ -2141,11 +2130,11 @@ export default function Home() {
                 {!adminEmail&&<p className="text-xs text-destructive">Admin email not found. Please log in again.</p>}
                 {smtpConfigured?(
                   <div className="flex items-center gap-2 p-2 rounded-lg bg-green-500/10 border border-green-500/30">
-                    <CheckCircle2 className="h-4 w-4 text-green-600"/><span className="text-xs text-green-600 font-medium">OTP will be sent to your email</span>
+                    <CheckCircle2 className="h-4 w-4 text-green-600"/><span className="text-xs text-green-600 font-medium">OTP shown on screen + sent to your email</span>
                   </div>
                 ):(
                   <div className="flex items-center gap-2 p-2 rounded-lg bg-amber-500/10 border border-amber-500/30">
-                    <Mail className="h-4 w-4 text-amber-600"/><span className="text-xs text-amber-600 font-medium">SMTP not configured — OTP shown on screen. Configure in Dashboard → Settings.</span>
+                    <Mail className="h-4 w-4 text-amber-600"/><span className="text-xs text-amber-600 font-medium">OTP always shown on screen for instant access. Configure SMTP in Dashboard → Settings for email delivery too.</span>
                   </div>
                 )}
                 {adminResetStep==='request'?(
@@ -2154,9 +2143,9 @@ export default function Home() {
                   </div>
                 ):(
                   <div className="space-y-2">
-                    {!smtpConfigured&&generatedOtp&&<div className="flex items-center gap-2 p-2 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800"><span className="text-xs font-medium">OTP:</span><code className="text-sm font-bold text-amber-600 dark:text-amber-400">{generatedOtp}</code></div>}
-                    {smtpConfigured&&<p className="text-xs text-muted-foreground">OTP sent to {adminEmail}. Check your inbox.</p>}
-                    <div><Label>OTP</Label><Input value={adminResetOtp} onChange={e=>setAdminResetOtp(e.target.value)} placeholder="Enter OTP from email"/></div>
+                    {generatedOtp&&<div className="flex items-center gap-2 p-3 rounded-lg bg-primary/10 border border-primary/30"><span className="text-xs font-medium">Your OTP:</span><code className="text-lg font-bold text-primary tracking-widest">{generatedOtp}</code></div>}
+                    {smtpConfigured&&<p className="text-xs text-muted-foreground">OTP also sent to {adminEmail} (may take a few minutes).</p>}
+                    <div><Label>OTP</Label><Input value={adminResetOtp} onChange={e=>setAdminResetOtp(e.target.value)} placeholder="Enter OTP from above"/></div>
                     <div><Label>New Password</Label><Input value={adminResetNewPass} onChange={e=>setAdminResetNewPass(e.target.value)} type="password"/></div>
                     <Button onClick={handleAdminResetVerify} disabled={!adminResetOtp.trim()||!adminResetNewPass.trim()} className="w-full">Verify & Reset</Button>
                   </div>
