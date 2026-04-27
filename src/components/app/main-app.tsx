@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { useAgentStore } from '@/store/agent-store';
 import { useToast } from '@/hooks/use-toast';
@@ -160,7 +160,7 @@ export default function MainApp() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatInputValueRef = useRef('');
   const isLoadingRef = useRef(false);
-  const allCodeBlocks = extractCodeBlocksFromMessages(messages);
+  const allCodeBlocks = useMemo(() => extractCodeBlocksFromMessages(messages), [messages]);
 
   useEffect(() => { setMounted(true); }, []);
 
@@ -498,9 +498,9 @@ export default function MainApp() {
     finally{setIsLoading(false);isLoadingRef.current=false;}
   }, [inputMessage, pendingAttachments, userRole, selectedDirectChatId, directChatLocks, selectedProjectId, projectLocks, selectedBusinessChatId, chatMode, selectedConversationId, toast, fetchBusinessChats, fetchDirectChats, fetchProjectDetails, fetchProjects]);
 
-  const handleNewChat=()=>{setSelectedConversationId(null);setMessages([]);setCurrentConversation(null);setUserScrolledUp(false);setPendingAttachments([]);chatInputValueRef.current='';setChatMode(selectedProjectId?'project':'none');};
-  const handleNewDirectChat=()=>{setSelectedDirectChatId(null);setSelectedProjectId(null);setSelectedConversationId(null);setSelectedBusinessChatId(null);setMessages([]);setCurrentConversation(null);setCodePanelOpen(false);setActiveView('chat');setUserScrolledUp(false);setPendingAttachments([]);chatInputValueRef.current='';setChatMode('direct');};
-  const handleNewBusinessChat=()=>{setSelectedBusinessChatId(null);setSelectedDirectChatId(null);setSelectedProjectId(null);setSelectedConversationId(null);setMessages([]);setCurrentConversation(null);setActiveView('chat');setUserScrolledUp(false);setPendingAttachments([]);chatInputValueRef.current='';setChatMode('business');};
+  const handleNewChat=()=>{setSelectedConversationId(null);setMessages([]);setCurrentConversation(null);setUserScrolledUp(false);setPendingAttachments([]);chatInputValueRef.current='';setChatInputClearSignal(s=>s+1);setChatMode(selectedProjectId?'project':'none');};
+  const handleNewDirectChat=()=>{setSelectedDirectChatId(null);setSelectedProjectId(null);setSelectedConversationId(null);setSelectedBusinessChatId(null);setMessages([]);setCurrentConversation(null);setCodePanelOpen(false);setActiveView('chat');setUserScrolledUp(false);setPendingAttachments([]);chatInputValueRef.current='';setChatInputClearSignal(s=>s+1);setChatMode('direct');};
+  const handleNewBusinessChat=()=>{setSelectedBusinessChatId(null);setSelectedDirectChatId(null);setSelectedProjectId(null);setSelectedConversationId(null);setMessages([]);setCurrentConversation(null);setActiveView('chat');setUserScrolledUp(false);setPendingAttachments([]);chatInputValueRef.current='';setChatInputClearSignal(s=>s+1);setChatMode('business')};
   const toggleProjectExpand=(id:string)=>{setExpandedProjects(prev=>{const n=new Set(prev);if(n.has(id))n.delete(id);else n.add(id);return n;});};
   const handleViewFile=(file:CodeFile)=>{setViewingFile(file);setFileViewerOpen(true);};
 
