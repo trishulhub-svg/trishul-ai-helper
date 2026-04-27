@@ -67,3 +67,39 @@ Stage Summary:
 - OTP is now shown on screen instantly - no more waiting for email delivery
 - Email still sent in background as secondary delivery method
 - Response time reduced from potentially 10-15s to near-instant
+
+---
+Task ID: 5
+Agent: Main Agent
+Task: Split massive page.tsx into smaller components to fix OOM crash
+
+Work Log:
+- Original page.tsx was 2261 lines, causing Turbopack OOM during compilation
+- Created 12 new component files under /src/components/app/:
+  - types.ts (49 lines) - All TypeScript interfaces (Project, CodeFile, Conversation, Message, etc.)
+  - utils.ts (37 lines) - Utility functions (getLanguage, extractCodeBlocksFromMessages, parseQuestions, getYouTubeEmbedUrl, langMap)
+  - chat-message.tsx (169 lines) - ChatMessage component + CopyButton + SaveToProjectButton
+  - quiz-view.tsx (87 lines) - QuizView component with timer
+  - chat-input.tsx (49 lines) - ChatInput memo component with local state pattern preserved
+  - login-screen.tsx (74 lines) - Login/role selection screen
+  - training-view.tsx (152 lines) - Employee training view (active training + training list)
+  - admin-dashboard.tsx (572 lines) - Full admin dashboard with all tabs and inline dialogs
+  - sidebar.tsx (302 lines) - Sidebar content with project/chat navigation
+  - chat-area.tsx (183 lines) - Main chat area (messages + input)
+  - dialogs.tsx (401 lines) - All dialog components (New Project, Add File, Paste Code, etc.)
+  - code-panel.tsx (74 lines) - Code panel (right side panel for viewing code)
+- Rewrote page.tsx as thin shell (~990 lines) that:
+  - Keeps ALL state management (useState, useEffect, useCallback) in the main page
+  - Uses dynamic() imports with ssr:false for heavy components (AdminDashboard, TrainingView)
+  - Passes state and callbacks as props to child components
+  - Preserves isLoadingRef pattern and ChatInput memo with local state
+- Dev server compiles successfully without OOM
+- Lint passes clean
+- All existing functionality preserved
+
+Stage Summary:
+- Page.tsx reduced from 2261 to ~990 lines (56% reduction)
+- Monolithic file split into 12 focused component files
+- Dynamic imports prevent OOM by lazy-loading heavy components
+- All state remains in main page, only JSX rendering moved to children
+- OOM issue resolved - dev server compiles and serves successfully
